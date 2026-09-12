@@ -5,9 +5,9 @@ A native GTK 4 app for writing **songs** with a local Ollama model. Develop a so
 ## Install on Omarchy
 
 ```bash
-git clone --branch feat/native-songwriting-app https://github.com/Ashcutus/Omarchy-Song-Creator.git
-cd Omarchy-Song-Creator
-./install.sh
+git clone https://github.com/Ashcutus/Omarchy-Song-Creator.git &&
+cd Omarchy-Song-Creator &&
+./install.sh &&
 ./setup-ollama.sh
 ```
 
@@ -21,7 +21,7 @@ For an installation without prompts:
 ./install.sh --bar-position middle
 ```
 
-Use `left`, `middle`, `right`, `none`, or `keep`. Without a terminal or an explicit option, the installer keeps the existing bar layout. The commands above use the development branch while the initial pull request is awaiting merge.
+Use `left`, `middle`, `right`, `none`, or `keep`. Without a terminal or an explicit option, the installer keeps the existing bar layout.
 
 Search for **Versework — Song Creator** in the app launcher. The installer copies the app to `~/.local/share/versework/app` and adds a user-level desktop entry. Run `./install.sh` again after updating the repository, then close and reopen Versework. Your saved work is kept separately.
 
