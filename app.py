@@ -850,6 +850,8 @@ class Studio(Gtk.Application):
                 window.close()
                 self.new_song_button.set_label(t('New song'))
                 self.settings_button.set_label(t('Settings'))
+                self.suno_button.set_label(t('Open Suno'))
+                self.suno_button.set_tooltip_text(t('Open Suno in your browser to log in or create music.'))
                 self.stop_button.set_label(t('Stop writing'))
                 self.refresh_projects()
                 if self.view == 'song' and self.project:
@@ -859,7 +861,6 @@ class Studio(Gtk.Application):
                 if self.busy:
                     self.content.set_sensitive(False)
                     self.sidebar.set_sensitive(False)
-                self.settings_dialog()
                 self.notify(t('Settings saved.'))
             except Exception as e:
                 error.set_text(str(e))
@@ -1223,14 +1224,28 @@ class Studio(Gtk.Application):
             window.controls['colours']['accent'].set_text('#4375BB')
             window.controls['apply']()
             assert self.settings['ui_language'] == 'fr'
-            assert self.settings_window is not None
+            assert self.settings_window is None
+            self.settings_dialog()
             assert self.settings_window.get_title() == 'Paramètres'
             assert self.store.list()[0]['language'] == 'English'
             assert self.store.list()[0]['tracks'][0]['current'] == song
             self.settings_window.controls['reset']()
             self.settings_window.controls['language'].set_selected(0)
             self.settings_window.controls['apply']()
-            self.settings_window.close()
+            assert self.settings_window is None
+            # Apply must close even when there are no pending changes.
+            before = copy.deepcopy(self.store.settings())
+            window = self.settings_dialog()
+            window.controls['apply']()
+            assert self.settings_window is None
+            assert self.store.settings() == before
+            # Validation failures keep the dialog open so the user can correct them.
+            window = self.settings_dialog()
+            window.controls['model'].set_text('')
+            window.controls['apply']()
+            assert self.settings_window is window
+            assert self.store.settings() == before
+            window.close()
             assert self.settings['colour_mode'] == 'system'
             assert self.settings['ui_language'] == 'system'
             limited, container = text_input()
