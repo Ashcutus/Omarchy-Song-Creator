@@ -438,6 +438,9 @@ class Studio(Gtk.Application):
             widget.set_sensitive(not track['approved'] and not self.busy)
             self.editors[field] = widget
             target.append(fieldbox)
+        refresh = button(t('Refresh lyrics'), self.refresh_lyrics_dialog)
+        refresh.set_sensitive(not track['approved'] and not self.busy and track['rewrites'] < p['limit'])
+        pages['Lyrics'].append(refresh)
         pages['Lyrics'].append(label(t('Lock fields to preserve them exactly during rewrites.'), 'caption'))
         review = pages['Review']
         review.append(label(t('Feedback'), 'heading'))
@@ -984,6 +987,32 @@ class Studio(Gtk.Application):
             self.notify(t('Add feedback before requesting a rewrite.'), True)
             return
         self.start_jobs([self.track_index], feedback)
+
+    def refresh_lyrics_dialog(self):
+        if self.busy or not self.flush():
+            return
+        track = self.project['tracks'][self.track_index]
+        if track['approved'] or track['rewrites'] >= self.project['limit']:
+            return
+        window, c = self.dialog(t('Refresh lyrics'), 620, 460)
+        c.append(label(t('Choose a starting point, then review the instructions before rewriting.'), 'caption'))
+        choices = {
+            'Light polish': 'Lightly polish the lyrics for natural phrasing, rhythm and singability. Preserve the story, structure and core hook.',
+            'Stronger chorus': 'Rewrite the chorus with a stronger, memorable hook and natural singable phrasing. Keep the verses and story as close as possible.',
+            'Fresh lyrics': 'Write completely fresh lyrics with new imagery and a new hook, keeping the creative brief, theme and production direction.',
+            'Update delivery cues': 'Update the bracketed lyric performance cues to match my saved production direction. Preserve the sung words wherever possible. Align the style prompt and exclusions with those directions.',
+        }
+        for title, instruction in choices.items():
+            def choose(text=instruction):
+                current = text_of(self.feedback_editor).strip()
+                self.feedback_editor.get_buffer().set_text(current + '\n\n' + text if current else text)
+                window.close()
+                self.editor_stack.set_visible_child_name('Review')
+                self.feedback_editor.grab_focus()
+            c.append(button(t(title), choose))
+        c.append(label(t('Uses the normal rewrite allowance when you start rewriting. Locked fields remain unchanged.'), 'caption'))
+        window.present()
+        return window
 
     def collection_feedback(self):
         if self.busy or not self.flush():

@@ -4,6 +4,13 @@ import os
 LANGUAGES = [('system', 'System language'), ('en', 'English'), ('de', 'Deutsch'), ('es', 'Español'), ('fr', 'Français')]
 # English | German | Spanish | French. Keep format placeholders identical.
 _ROWS = '''
+Refresh lyrics|Songtext auffrischen|Renovar letra|Retravailler les paroles
+Light polish|Leicht überarbeiten|Retoque ligero|Retouche légère
+Stronger chorus|Stärkerer Refrain|Estribillo más fuerte|Refrain plus marquant
+Fresh lyrics|Neuer Songtext|Letra nueva|Nouvelles paroles
+Update delivery cues|Vortragshinweise aktualisieren|Actualizar indicaciones de interpretación|Actualiser les indications d’interprétation
+Choose a starting point, then review the instructions before rewriting.|Wähle einen Ansatz und prüfe die Anweisungen vor der Überarbeitung.|Elige un punto de partida y revisa las instrucciones antes de reescribir.|Choisissez un point de départ puis vérifiez les instructions avant la réécriture.
+Uses the normal rewrite allowance when you start rewriting. Locked fields remain unchanged.|Verbraucht beim Start eine reguläre Überarbeitung. Gesperrte Felder bleiben unverändert.|Usa una revisión normal al empezar. Los campos bloqueados no cambian.|Utilise une révision normale au lancement. Les champs verrouillés restent inchangés.
 Performance feel|Spielgefühl|Carácter de la interpretación|Caractère de l’interprétation
 Natural and understated|Natürlich und zurückhaltend|Natural y contenida|Naturelle et sobre
 Live-room performance|Live im Raum|Interpretación en directo|Interprétation en salle

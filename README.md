@@ -61,6 +61,7 @@ Use **Open Suno** in the top bar to open Suno’s creation page in your default 
 - The **Songs** library shows all your songs, including unfinished drafts, and searches titles, styles and themes.
 - Each song has **Lyrics**, **Sound** and **Review** tabs. All eight fields are editable and individually copyable: title, lyrics, style prompt, exclusions, vocal gender, weirdness %, style influence %, and variety (`off`, `normal`, `high`, `extra`, `max`).
 - **Style prompt** and **Exclusions** each allow up to **1,000 characters**, including spaces and punctuation. Their editors show a live count and reject typing or pasting beyond the limit. This also applies to the initial style brief and AI output. Existing longer saved text is preserved for shortening; it is never silently truncated.
+- **Refresh lyrics** on the Lyrics tab offers Light polish, Stronger chorus, Fresh lyrics, and Update delivery cues. Choosing one appends editable instructions to Review; it does not start generation. Click **Rewrite song** when ready. Existing locks and rewrite limits apply.
 - Write a draft, give feedback, lock fields you want preserved exactly, and approve it when ready. Version history preserves earlier drafts and manual edits.
 - Generate audio manually in Suno, then bring your listening notes back into **Review**. Target duration guides the writing; Suno determines the audio length.
 
