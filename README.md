@@ -41,6 +41,18 @@ To run directly from the repository:
 ./launch.sh
 ```
 
+## Update Versework
+
+Open **Settings → App updates → Check for updates**. If one is available, choose **Install update**, then **Restart Versework**. Updates come from this repository’s main branch and require internet access and Git. No terminal or administrator password is needed.
+
+The updater stages and validates the new app before replacing the installed files. Your songs, settings, Ollama installation, and bar placement stay intact. If you run Versework directly from a source checkout, use the installed app for this feature.
+
+To get this button in an older installation, merge the updater change, close Versework, and run this once from your repository folder:
+
+```bash
+git pull && ./install.sh --bar-position keep
+```
+
 ## Songs first
 
 Use **Open Suno** in the top bar to open Suno’s creation page in your default browser. Log in there if needed; Versework does not handle your Suno credentials or send song text automatically.
@@ -102,7 +114,7 @@ You may explicitly select an interface language. This changes menus, buttons and
 
 Songs, collections, settings and version history are stored in `~/.local/share/versework/data/projects.sqlite3` using SQLite transactions. Back up the whole data folder while the app is closed to preserve full app state. Exports are readable text and JSON snapshots; the app does not yet import those JSON exports.
 
-The app only connects to `http://127.0.0.1:11434`, bypasses HTTP proxies, and excludes models advertised as cloud or remote. Its Ollama startup sets `OLLAMA_NO_CLOUD=1`. Downloading a model needs internet access; writing uses the installed local model. Ollama may stay running after the app closes and logs to `~/.local/share/versework/data/ollama.log` when started by Versework.
+For AI writing, the app only connects to `http://127.0.0.1:11434`, bypasses HTTP proxies, and excludes models advertised as cloud or remote. Its Ollama startup sets `OLLAMA_NO_CLOUD=1`. Downloading a model needs internet access; writing uses the installed local model. Ollama may stay running after the app closes and logs to `~/.local/share/versework/data/ollama.log` when started by Versework.
 
 ## Development and validation
 

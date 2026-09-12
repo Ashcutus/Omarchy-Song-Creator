@@ -4,6 +4,20 @@ import os
 LANGUAGES = [('system', 'System language'), ('en', 'English'), ('de', 'Deutsch'), ('es', 'Español'), ('fr', 'Français')]
 # English | German | Spanish | French. Keep format placeholders identical.
 _ROWS = '''
+App updates|App-Updates|Actualizaciones de la aplicación|Mises à jour de l’application
+Check GitHub for the latest version of Versework.|Suche auf GitHub nach der neuesten Version von Versework.|Busca la última versión de Versework en GitHub.|Recherchez la dernière version de Versework sur GitHub.
+Check for updates|Nach Updates suchen|Buscar actualizaciones|Rechercher des mises à jour
+Install update|Update installieren|Instalar actualización|Installer la mise à jour
+Restart Versework|Versework neu starten|Reiniciar Versework|Redémarrer Versework
+Update installed. Restart Versework to use it.|Update installiert. Starte Versework neu.|Actualización instalada. Reinicia Versework para usarla.|Mise à jour installée. Redémarrez Versework pour l’utiliser.
+An update check or installation is already running.|Eine Updateprüfung oder Installation läuft bereits.|Ya hay una búsqueda o instalación en curso.|Une recherche ou une installation est déjà en cours.
+Update failed: {error}|Update fehlgeschlagen: {error}|Error de actualización: {error}|Échec de la mise à jour : {error}
+Versework is up to date.|Versework ist auf dem neuesten Stand.|Versework está actualizado.|Versework est à jour.
+An update is available. Your songs and settings will be preserved.|Ein Update ist verfügbar. Songs und Einstellungen bleiben erhalten.|Hay una actualización disponible. Se conservarán tus canciones y ajustes.|Une mise à jour est disponible. Vos chansons et réglages seront conservés.
+Open the installed app to update. Run install.sh once if needed.|Öffne die installierte App zum Aktualisieren. Führe bei Bedarf einmal install.sh aus.|Abre la aplicación instalada para actualizar. Ejecuta install.sh una vez si es necesario.|Ouvrez l’application installée pour la mettre à jour. Exécutez install.sh une fois si nécessaire.
+Checking for updates…|Suche nach Updates…|Buscando actualizaciones…|Recherche de mises à jour…
+Installing update…|Update wird installiert…|Instalando actualización…|Installation de la mise à jour…
+Wait for the update to finish before closing.|Warte vor dem Schließen, bis das Update abgeschlossen ist.|Espera a que termine la actualización antes de cerrar.|Attendez la fin de la mise à jour avant de fermer.
 Production|Produktion|Producción|Production
 Production direction|Produktionsvorgaben|Dirección de producción|Direction de production
 Dynamics|Dynamik|Dinámica|Dynamique

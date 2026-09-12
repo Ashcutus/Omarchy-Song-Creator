@@ -16,6 +16,7 @@ from gi.repository import Gtk, Gdk, Gio, GLib
 from core import (PRODUCTION_OPTIONS, production_direction, TEXT_LIMIT, FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
                   make_collection, commit_version, restore_version, generate_song, track_status, song_text)
 from appearance import COLOUR_KEYS, LAYOUT_CSS, read_palette, colour_css, resolved_palette, valid_colour
+from updater import current_revision, latest_revision, install_update
 from i18n import LANGUAGES, set_language, system_language, t
 
 APP_ID = 'io.versework.Studio'
@@ -151,6 +152,9 @@ class Studio(Gtk.Application):
         self.settings_window = None
         self.cancel_event = threading.Event()
         self.smoke_ok = False
+        self.update_running = False
+        self.update_installed = False
+        self.restart_requested = False
         self.connect('activate', self.activate)
 
     def activate(self, *_):
@@ -859,6 +863,7 @@ class Studio(Gtk.Application):
                 self.notify(t('Settings saved.'))
             except Exception as e:
                 error.set_text(str(e))
+        self.update_controls(c)
         window.actions.append(button(t('Apply'), apply, True))
         window.actions.append(button(t('Close'), window.close))
         window.actions.set_visible(True)
@@ -867,6 +872,84 @@ class Studio(Gtk.Application):
                            'apply': apply, 'close': window.close, 'reset': reset}
         window.present()
         return window
+
+    def update_controls(self, container):
+        container.append(Gtk.Separator())
+        container.append(label(t('App updates'), 'heading'))
+        state = label(t('Check GitHub for the latest version of Versework.'), 'caption')
+        container.append(state)
+        action = button(t('Check for updates'), lambda: check())
+        container.append(action)
+        target = Path(__file__).resolve().parent
+        found = [None]
+        if self.update_installed:
+            state.set_text(t('Update installed. Restart Versework to use it.'))
+            action.set_label(t('Restart Versework'))
+        elif self.update_running:
+            state.set_text(t('An update check or installation is already running.'))
+            action.set_sensitive(False)
+            def refresh_when_done():
+                if action.get_root() is None:
+                    return False
+                if self.update_running:
+                    return True
+                action.set_sensitive(True)
+                state.set_text(t('Update installed. Restart Versework to use it.') if self.update_installed else t('Check GitHub for the latest version of Versework.'))
+                action.set_label(t('Restart Versework') if self.update_installed else t('Check for updates'))
+                return False
+            GLib.timeout_add(250, refresh_when_done)
+
+        def finish(revision=None, error=None, installed=False):
+            self.update_running = False
+            action.set_sensitive(True)
+            if error:
+                state.set_text(t('Update failed: {error}', error=str(error)))
+                found[0] = None
+                action.set_label(t('Check for updates'))
+            elif installed:
+                self.update_installed = True
+                state.set_text(t('Update installed. Restart Versework to use it.'))
+                action.set_label(t('Restart Versework'))
+            elif revision == current_revision(target):
+                state.set_text(t('Versework is up to date.'))
+            else:
+                found[0] = revision
+                state.set_text(t('An update is available. Your songs and settings will be preserved.'))
+                action.set_label(t('Install update'))
+            return False
+
+        def check():
+            if self.update_installed:
+                if self.busy:
+                    state.set_text(t('Finish or stop writing first.'))
+                elif self.flush():
+                    self.restart_requested = True
+                    self.quit()
+                return
+            if self.update_running:
+                return
+            if self.busy:
+                state.set_text(t('Finish or stop writing first.'))
+                return
+            if not (target / '.versework-revision').exists() or (target / '.git').exists():
+                state.set_text(t('Open the installed app to update. Run install.sh once if needed.'))
+                return
+            if not self.flush():
+                return
+            revision = found[0]
+            self.update_running = True
+            action.set_sensitive(False)
+            state.set_text(t('Installing update…') if revision else t('Checking for updates…'))
+            def worker():
+                try:
+                    if revision:
+                        install_update(target, revision)
+                        GLib.idle_add(finish, None, None, True)
+                    else:
+                        GLib.idle_add(finish, latest_revision())
+                except Exception as exc:
+                    GLib.idle_add(finish, None, str(exc))
+            threading.Thread(target=worker, daemon=True).start()
 
     def native_palette(self):
         context = self.win.get_style_context()
@@ -1103,6 +1186,9 @@ class Studio(Gtk.Application):
         window.present()
 
     def close(self, *_):
+        if self.update_running:
+            self.notify(t('Wait for the update to finish before closing.'), True)
+            return True
         if self.busy:
             self.cancel_event.set()
             return False
@@ -1211,4 +1297,6 @@ class Studio(Gtk.Application):
 if __name__ == '__main__':
     app = Studio()
     result = app.run([sys.argv[0]])
+    if app.restart_requested:
+        os.execv(sys.executable, [sys.executable, str(Path(__file__).resolve())])
     sys.exit(1 if '--smoke' in sys.argv and not app.smoke_ok else result)

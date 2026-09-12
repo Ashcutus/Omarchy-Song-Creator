@@ -53,11 +53,13 @@ fi
   exit 1
 }
 mkdir -p -- "$versework_target" "$(dirname -- "$versework_desktop")"
-for versework_file in app.py core.py appearance.py i18n.py launch.sh setup-ollama.sh icon.svg README.md; do
+for versework_file in app.py core.py appearance.py i18n.py updater.py launch.sh setup-ollama.sh icon.svg README.md; do
   if [[ "$versework_source/$versework_file" != "$versework_target/$versework_file" ]]; then
     install -m 644 -- "$versework_source/$versework_file" "$versework_target/$versework_file"
   fi
 done
+versework_revision="$(git -C "$versework_source" rev-parse HEAD 2>/dev/null || true)"
+printf '%s\n' "$versework_revision" > "$versework_target/.versework-revision"
 chmod +x "$versework_target/launch.sh" "$versework_target/setup-ollama.sh"
 VERSEWORK_INSTALL_TARGET="$versework_target" VERSEWORK_DESKTOP_PATH="$versework_desktop" /usr/bin/python3 - <<'PYTHON'
 import os
