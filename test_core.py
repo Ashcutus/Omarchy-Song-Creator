@@ -195,3 +195,33 @@ class CharacterLimitTests(unittest.TestCase):
             create_project('Song', 'x' * 1001, 1, 180, 240, 3)
         for field in ('style_prompt', 'exclusions'):
             self.assertEqual(SCHEMA['properties'][field]['maxLength'], 1000)
+
+
+class ProductionTests(unittest.TestCase):
+    def test_direction_is_per_song_and_survives_storage(self):
+        project = create_project('Song', 'Folk', 2, 180, 240, 3)
+        direction = {'density': 'stripped', 'dynamics': 'steady', 'vocals': 'intimate', 'notes': 'Fingerpicked guitar only.'}
+        project['tracks'][0]['production'] = production_direction(direction)
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / 'test.sqlite3')
+            store.save(project)
+            saved = store.list()[0]
+            self.assertEqual(saved['tracks'][0]['production'], direction)
+            first = prompt_for(saved, 0)
+            second = prompt_for(saved, 1)
+            self.assertIn('Fingerpicked guitar only.', first)
+            self.assertIn('bracketed performance cues', first)
+            self.assertIn('no doubled lead', first)
+            self.assertNotIn('Fingerpicked guitar only.', second)
+            commit_version(saved, 0, song(), 'initial')
+            revision = prompt_for(saved, 0, 'Less busy')
+            self.assertIn('Fingerpicked guitar only.', revision)
+            self.assertIn('Less busy', revision)
+
+    def test_legacy_defaults_and_validation(self):
+        self.assertEqual(production_direction()['density'], 'style')
+        self.assertEqual(production_brief({})['delivery'], [])
+        with self.assertRaises(ValueError):
+            production_direction({'density': 'invalid'})
+        with self.assertRaises(ValueError):
+            production_direction({'notes': 'x' * 1001})

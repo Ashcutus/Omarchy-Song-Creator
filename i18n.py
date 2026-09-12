@@ -4,6 +4,27 @@ import os
 LANGUAGES = [('system', 'System language'), ('en', 'English'), ('de', 'Deutsch'), ('es', 'Español'), ('fr', 'Français')]
 # English | German | Spanish | French. Keep format placeholders identical.
 _ROWS = '''
+Production|Produktion|Producción|Production
+Production direction|Produktionsvorgaben|Dirección de producción|Direction de production
+Dynamics|Dynamik|Dinámica|Dynamique
+Vocal delivery|Gesangsstil|Interpretación vocal|Interprétation vocale
+Follow style|Stil folgen|Seguir el estilo|Suivre le style
+Stripped back|Minimalistisch|Minimalista|Épurée
+Restrained|Zurückhaltend|Contenida|Sobre
+Balanced|Ausgewogen|Equilibrada|Équilibrée
+Full production|Volle Produktion|Producción completa|Production ample
+Steady and contained|Gleichmäßig und verhalten|Constante y contenida|Stable et contenue
+Gentle build|Sanfte Steigerung|Crecimiento suave|Progression douce
+Dramatic build|Dramatische Steigerung|Crecimiento dramático|Progression dramatique
+Intimate solo|Intimer Sologesang|Solo íntimo|Solo intime
+Natural lead|Natürliche Hauptstimme|Voz principal natural|Voix principale naturelle
+Layered vocals|Mehrschichtiger Gesang|Voces en capas|Voix superposées
+Arrangement and delivery notes|Hinweise zu Arrangement und Vortrag|Notas de arreglo e interpretación|Notes d’arrangement et d’interprétation
+Applies to the next draft or rewrite. Suno may interpret these directions differently.|Gilt für den nächsten Entwurf oder die nächste Überarbeitung. Suno kann diese Vorgaben anders interpretieren.|Se aplica al próximo borrador o revisión. Suno puede interpretar estas indicaciones de otra manera.|S’applique au prochain brouillon ou à la prochaine révision. Suno peut interpréter ces indications différemment.
+Production direction saved for the next draft or rewrite.|Produktionsvorgaben für den nächsten Entwurf oder die nächste Überarbeitung gespeichert.|Dirección de producción guardada para el próximo borrador o revisión.|Direction de production enregistrée pour le prochain brouillon ou la prochaine révision.
+Open Suno|Suno öffnen|Abrir Suno|Ouvrir Suno
+Open Suno in your browser to log in or create music.|Öffne Suno im Browser, um dich anzumelden oder Musik zu erstellen.|Abre Suno en tu navegador para iniciar sesión o crear música.|Ouvrez Suno dans votre navigateur pour vous connecter ou créer de la musique.
+Could not open Suno: {error}|Suno konnte nicht geöffnet werden: {error}|No se pudo abrir Suno: {error}|Impossible d’ouvrir Suno : {error}
 Review songs|Songs überprüfen|Revisar canciones|Réviser les chansons
 Select songs and enter feedback.|Wähle Songs und gib Feedback ein.|Selecciona canciones e introduce comentarios.|Sélectionnez des chansons et ajoutez des commentaires.
 Rewrite selected songs|Ausgewählte Songs überarbeiten|Reescribir canciones seleccionadas|Réécrire les chansons sélectionnées

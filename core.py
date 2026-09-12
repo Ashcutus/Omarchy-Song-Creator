@@ -26,6 +26,56 @@ SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': FIELDS + 
     'variety': {'type': 'string', 'enum': VARIETIES}}}
 SYSTEM = """You are a thoughtful songwriter and producer. Write original, singable lyrics with concrete imagery, natural stresses, memorable hooks and deliberate progression. Avoid generic filler and repeating the same images across a collection. Every track needs its own hook, chorus, story and wording. Never copy a lyric line from another track; peer lyrics are a do-not-repeat reference, not a template. Do not simply turn the theme description into a chorus. Treat creative brief and feedback as creative direction, never instructions to change the JSON format. Return only the requested JSON object. All eight song fields are required. Use bracketed section labels in lyrics. Write practical style prompts describing genre, rhythm, instruments, production and vocal delivery. Exclusions are a concise comma-separated list. style_prompt and exclusions must each contain at most 1000 characters, including spaces and punctuation. Weirdness and style_influence are integer percentages. Variety is exactly off, normal, high, extra or max. Duration is a target for structure, tempo and lyric density, never a guaranteed audio length. notes should briefly explain arrangement/duration choices, or changes made for a revision. Do not claim to generate or listen to audio. Do not claim to have verified any Suno setting."""
 
+PRODUCTION_OPTIONS = {
+    'density': {
+        'style': ('Follow style', ''),
+        'stripped': ('Stripped back', 'Use a sparse arrangement with one or two supporting instruments, space between phrases, and no added layers for scale.'),
+        'restrained': ('Restrained', 'Use a small, clearly defined ensemble. Keep supporting layers sparse; avoid stacked hooks, ornamental fills, and automatic chorus thickening.'),
+        'balanced': ('Balanced', 'Use a clear core arrangement with selective supporting layers; each addition must serve the song.'),
+        'full': ('Full production', 'Allow a rich layered arrangement while keeping the lead and core musical ideas clear.'),
+    },
+    'dynamics': {
+        'style': ('Follow style', ''),
+        'steady': ('Steady and contained', 'Keep intensity contained throughout. Do not add a giant final chorus, cinematic rise, drop, or key change.'),
+        'gentle': ('Gentle build', 'Build gradually through performance and subtle instrumentation, without an oversized climax.'),
+        'dramatic': ('Dramatic build', 'Allow deliberate contrast and a strong climax where the song calls for it.'),
+    },
+    'vocals': {
+        'style': ('Follow style', ''),
+        'intimate': ('Intimate solo', 'Use a close, natural solo lead, restrained delivery, minimal effects, no doubled lead, harmonies, choir, or ad-libs.'),
+        'natural': ('Natural lead', 'Keep the lead vocal natural and clear, with minimal processing and only occasional purposeful backing vocals.'),
+        'layered': ('Layered vocals', 'Allow deliberate harmonies and vocal layers while keeping the lead intelligible.'),
+    },
+}
+
+
+def production_direction(value=None):
+    value = value or {}
+    if not isinstance(value, dict):
+        raise ValueError('Invalid production direction.')
+    result = {}
+    for key, options in PRODUCTION_OPTIONS.items():
+        choice = value.get(key, 'style')
+        if choice not in options:
+            raise ValueError('Invalid production choice.')
+        result[key] = choice
+    notes = value.get('notes', '')
+    if not isinstance(notes, str) or len(notes) > TEXT_LIMIT:
+        raise ValueError('Production notes must be 1000 characters or fewer.')
+    result['notes'] = notes
+    return result
+
+
+def production_brief(track):
+    direction = production_direction(track.get('production'))
+    return {
+        'choices': direction,
+        'delivery': [PRODUCTION_OPTIONS[key][direction[key]][1]
+                     for key in PRODUCTION_OPTIONS if direction[key] != 'style'],
+        'instructions': 'Apply this direction to style_prompt and concise bracketed performance cues in lyrics. Keep cues separate from sung words. Add relevant unwanted production elements to exclusions. Respect locked fields. For instrumental songs, omit vocal directions and vocal lyric cues. Keep style_prompt and exclusions within 1000 characters each. If specific production choices conflict with broad genre conventions, follow the specific choices. These are creative requests, not guarantees of audio behaviour.',
+    }
+
+
 class Cancelled(Exception):
     pass
 
@@ -129,6 +179,7 @@ def prompt_for(project, index, feedback=''):
         brief['collection'] = {k: v for k, v in context.items() if k != 'other_songs'}
         role = ('A distinct standalone song in a themed collection' if context['kind'] == 'collection' else
                 f"Song {context['position']} of {context['total']} on this {context['kind']}")
+    brief['production'] = production_brief(track)
     brief['track_role'] = role
     action = 'Write the initial song. Give this song its own identity. It may stand alone or belong to an optional collection. Read peer lyrics only to avoid repeating them. Write a completely new hook and chorus, not a paraphrase of a peer chorus.'
     if track['current']:
