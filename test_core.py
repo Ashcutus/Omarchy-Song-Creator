@@ -81,9 +81,14 @@ class RevisionTests(unittest.TestCase):
             self.assertEqual(restored, self.p)
             self.assertEqual(sum(t['current'] is None for t in restored['tracks']), 3)
             second.db.close()
+    def add_collection_context(self):
+        self.p['_collection_context'] = {'name': 'Test', 'kind': 'collection', 'theme': 'Shared', 'position': 1, 'total': 4,
+            'other_songs': [{'title': t['current']['title'], 'do_not_repeat_these_lyrics': t['current']['lyrics']} for t in self.p['tracks'] if t['current']]}
+
     def test_revision_prompt_includes_context_feedback_locks(self):
         commit_version(self.p, 0, song(), 'initial')
         commit_version(self.p, 1, song('Neighbour'), 'initial')
+        self.add_collection_context()
         self.p['tracks'][0]['locks'] = ['lyrics']
         prompt = prompt_for(self.p, 0, 'More hopeful')
         for text in ['Neighbour', 'More hopeful', 'locked_fields', 'target_seconds', '180', 'track_role', 'do_not_repeat_these_lyrics']:
@@ -97,6 +102,7 @@ class RevisionTests(unittest.TestCase):
             self.assertIn(field, result)
     def test_duplicate_draft_gets_one_retry(self):
         commit_version(self.p, 0, song(), 'initial')
+        self.add_collection_context()
         unique = song('A new song')
         unique['lyrics'] = 'I count the windows on the hill\nYour boots are drying by the door'
         class Fake:
@@ -110,6 +116,7 @@ class RevisionTests(unittest.TestCase):
 
     def test_repeated_duplicate_draft_is_rejected(self):
         commit_version(self.p, 0, song(), 'initial')
+        self.add_collection_context()
         class Fake:
             calls = 0
             def generate(inner, *args):

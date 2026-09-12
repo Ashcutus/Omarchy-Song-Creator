@@ -1,6 +1,6 @@
 # Versework — Omarchy Song Creator
 
-A native GTK 4 desktop app for writing a song or an EP with a **local Ollama model**, reviewing the drafts, and preparing lyrics and settings to paste into Suno. No Suno API, cloud LLM account, browser server, or Python packages from pip are required.
+A native GTK 4 app for writing **songs** with a local Ollama model. Develop a song on its own, collect ideas around a theme, and organise an album or EP when you want to. Copy the finished lyrics and settings into Suno yourself; no Suno API is needed.
 
 ## Install on Omarchy
 
@@ -11,80 +11,93 @@ cd Omarchy-Song-Creator
 ./setup-ollama.sh
 ```
 
-`install.sh` installs the app for the current user and adds **Versework — Song Creator** to the desktop launcher. GTK 4 and Python GObject are normally already installed on Omarchy. If they are missing:
+Search for **Versework — Song Creator** in the app launcher. The installer copies the app to `~/.local/share/versework/app` and adds a user-level desktop entry. Run `./install.sh` again after updating the repository, then close and reopen Versework. Your saved work is kept separately.
+
+GTK 4 and Python GObject are normally already installed on Omarchy. If needed:
 
 ```bash
 omarchy pkg add python-gobject gtk4
 ```
 
-`setup-ollama.sh` uses `omarchy pkg add ollama ollama-vulkan`, starts a local Ollama server, and downloads **qwen3:8b** (approximately 5 GB). It may ask for your system password when installing packages. Model inference may use substantial RAM/VRAM. The Vulkan backend supports compatible GPUs; actual acceleration depends on the installed driver and Ollama build.
+`setup-ollama.sh` installs `ollama` and `ollama-vulkan` through Omarchy, starts a loopback-only Ollama server, and downloads **qwen3:8b** (approximately 5 GB). Package installation may ask for your system password. Vulkan acceleration depends on the GPU driver and Ollama build.
 
-You may select another local model:
+To use a different local model, pass its name to the setup script. Then choose **Settings → Local writing → Check connection**, select it, and **Apply**. If Ollama is stopped after restarting your computer, use **Start Ollama** in the same section. No cloud model or API key is required.
 
-```bash
-./setup-ollama.sh qwen3:4b
-```
-
-Then open the app, choose **Settings → Check connection**, select the installed model, and **Save settings**. If Ollama is not running after a restart, use **Settings → Start Ollama**. The app does not add a system service or start a model download without the setup command.
-
-To run directly without installing the launcher:
+To run directly from the repository:
 
 ```bash
 ./launch.sh
 ```
 
-## Workflow
+## Songs first
 
-1. Create a project with a name, style prompt, song count, target duration range in seconds, and maximum AI rewrites per song. Add a language and optional theme.
-2. Select **Write remaining drafts**, or write a single track. Each track uses the project brief and context from already written tracks to build a cohesive collection.
-3. Review and edit each of the eight fields: **song title, lyrics, style prompt, exclusions, vocal gender, weirdness %, style influence %, variety level**. Variety supports `off`, `normal`, `high`, `extra`, and `max`.
-4. Copy fields into Suno and generate the audio there. Bring listening notes back into Versework as feedback.
-5. Lock any fields that must remain exactly unchanged. Request a rewrite for a single track, or apply EP feedback to selected eligible tracks.
-6. Approve songs when you are happy. Export the EP as readable Markdown and a JSON project backup containing the complete version history.
+- **New song** starts with one song by default. Enter its working title, style, optional theme, lyric language, target duration range and rewrite limit. You can request several song ideas at once.
+- The **Songs** library shows all your songs, including unfinished drafts, and searches titles, styles and themes.
+- Each song has **Lyrics**, **Sound** and **Review** tabs. All eight fields are editable and individually copyable: title, lyrics, style prompt, exclusions, vocal gender, weirdness %, style influence %, and variety (`off`, `normal`, `high`, `extra`, `max`).
+- Write a draft, give feedback, lock fields you want preserved exactly, and approve it when ready. Version history preserves earlier drafts and manual edits.
+- Generate audio manually in Suno, then bring your listening notes back into **Review**. Target duration guides the writing; Suno determines the audio length.
 
-Target duration guides lyrics and arrangement; it does not guarantee the duration of audio generated in Suno. Vocal options are writing metadata (male, female, mixed, unspecified, or instrumental). Match those to the controls available in your version of Suno.
+## Optional collections, albums and EPs
 
-### Revision rules
+Use **New collection** to name a group, give it a theme and choose songs. A collection may be labelled **Collection**, **Album** or **EP**; change that at any time under **Manage collection**. The up/down controls determine running order. A song can belong to more than one collection.
 
-- An initial draft does **not** use a rewrite.
-- Only a successfully validated and saved AI revision increments the per-song counter. Unchanged output (including a change to notes only) is rejected without using a rewrite.
-- Manual edits and restoring a previous version do not use a rewrite, and never reset the counter.
-- Approved songs cannot be edited, rewritten or restored until explicitly reopened.
-- At the rewrite limit, a song remains **Limit reached · review needed** until the user approves it. It is not automatically marked finished.
-- Field locks are enforced by the app, not merely requested in the prompt.
-- New drafts are checked for repeated lines from peer songs. Two or more repeated substantial lines trigger one automatic retry; a second duplicate result is rejected without saving. This is a basic exact-line check, not a guarantee of originality.
-- Completed songs are saved as an EP is generated. A failed later song does not discard earlier work; use **Write remaining drafts** to resume.
-- Stop writing cancels at the next streamed response from Ollama; an initial model load may delay cancellation. Closing the app preserves previously saved drafts.
+Use **Organise song** from the editor to change membership. Removing a song from a collection leaves the song and every saved version in the library. Collection themes add context when writing a song opened from that collection; they do not overwrite individual song briefs or lyric languages. Songs opened from the unfiltered library use their own brief.
 
-## Local storage and privacy
+**Review songs** lets you apply feedback to selected eligible songs in a collection. Approved songs and songs at their rewrite limit are excluded. **Export** saves readable song text plus a JSON snapshot of the selected songs, creative briefs and version histories.
 
-Projects and settings live in `~/.local/share/versework/data/projects.sqlite3`, using SQLite transactions. Drafts are saved on generation, editing/navigation, and close. Exported JSON includes versions, feedback and the original creative brief. The current app exports backups but does not yet provide a JSON backup importer; keep the SQLite database for full app-state restoration.
+Earlier multi-song projects are automatically represented as collections on first launch of this version. The original song records, approvals, locks and rewrite histories remain unchanged. This migration runs only once.
 
-The app only connects to `http://127.0.0.1:11434`, bypasses HTTP proxies, and excludes models advertised as cloud/remote. Its Ollama startup sets `OLLAMA_NO_CLOUD=1`. The model download requires internet access; writing uses the installed local model. No Suno requests or automatic audio generation occur.
+## Appearance and interface language
 
-Installed application files: `~/.local/share/versework/app/`.
-Desktop launcher: `~/.local/share/applications/io.versework.Studio.desktop`.
-An Ollama process started by the app logs to `~/.local/share/versework/data/ollama.log` and may remain running after Versework closes.
+**Settings** is always dismissible with **Close**, the window close control, or **Escape**. Closing discards changes that have not been applied. **Apply** saves preferences and keeps Settings open. Local writing controls are in a collapsible section and are not required for changing appearance or closing the window.
 
-Run `./install.sh` again after updating the repository to update the installed app without replacing your project database.
+### Theme and colours
+
+The default is **Follow Omarchy theme**. Versework reads the active Omarchy palette at `~/.local/state/omarchy/current/theme/colors.toml` (with the older `~/.config/omarchy/current/theme` location as a fallback) and follows changes automatically. It leaves the desktop's fonts, GTK settings and global configuration untouched. If no Omarchy palette is available, GTK supplies the native colours; the app does not force dark mode.
+
+Choose **Custom colours** to change Versework's background, surfaces, text and accent using colour pickers or six-digit hex values. **Restore theme colours**, then **Apply**, returns to automatic theme following. These preferences affect Versework only.
+
+### Interface language
+
+The default is **System language**, resolved from the user's locale environment (`LC_ALL`, `LC_MESSAGES`, `LANG` and GNU `LANGUAGE` preferences). Available translations: **English, German, Spanish and French**. Unsupported system languages fall back to English. The setting remains “system” rather than storing a detected language, so future launches follow locale changes.
+
+You may explicitly select an interface language. This changes menus, buttons and built-in interface text, **not song content, creative briefs or lyric language**. Generated content and detailed external service errors remain in their original language.
+
+## Revision rules
+
+- Initial drafts do not consume a rewrite.
+- Only a successfully validated, saved AI revision increments the song's counter. Unchanged output, even if its notes claim changes, is rejected without using a rewrite.
+- Manual edits and restoring an earlier version do not use an AI rewrite or reset the counter.
+- Approved songs are protected until reopened. Reopening does not reset the rewrite limit.
+- Reaching the limit marks a song **Limit reached · review needed**; it never approves a song automatically.
+- Locked fields are enforced by the app.
+- Initial drafts are checked for repeated substantial lines from other songs in the writing context. Two or more repeated lines trigger one automatic retry; a second duplicate result is rejected. This exact-line check is not a guarantee of originality.
+- Completed drafts are saved as generation progresses. A later failure does not discard earlier songs.
+- **Stop writing** cancels at the next streamed response; first-time model loading may delay cancellation. Closing preserves completed, saved drafts.
+
+## Storage and privacy
+
+Songs, collections, settings and version history are stored in `~/.local/share/versework/data/projects.sqlite3` using SQLite transactions. Back up the whole data folder while the app is closed to preserve full app state. Exports are readable text and JSON snapshots; the app does not yet import those JSON exports.
+
+The app only connects to `http://127.0.0.1:11434`, bypasses HTTP proxies, and excludes models advertised as cloud or remote. Its Ollama startup sets `OLLAMA_NO_CLOUD=1`. Downloading a model needs internet access; writing uses the installed local model. Ollama may stay running after the app closes and logs to `~/.local/share/versework/data/ollama.log` when started by Versework.
 
 ## Development and validation
 
-Python 3, GTK 4, and PyGObject are the only app dependencies. Ollama is accessed using its documented streaming `/api/generate` API with a JSON schema and local validation.
+Python 3.11+, GTK 4.10+ and PyGObject are the app dependencies. There are no pip dependencies. Ollama is accessed through its documented streaming `/api/generate` API with a JSON schema and local validation.
 
 ```bash
 python -m unittest discover -v
-python -m py_compile app.py core.py
+python -m py_compile app.py core.py appearance.py i18n.py
 bash -n install.sh launch.sh setup-ollama.sh
 ```
 
-The 17 tests cover revision limits, approval protection, field locks, unchanged revisions, duplicate-draft retry/rejection, restoration, restart persistence, prompt context, exports, local model filtering and streamed response validation/cancellation. A GUI smoke fixture can be run on a display using an isolated data directory:
+The tests cover revision and approval rules, duplicate/unchanged output, persistence, collection migration and membership, generation context, palette validation and locale selection. Run the native UI smoke test with an isolated data directory:
 
 ```bash
 VERSEWORK_DATA=/tmp/versework-smoke ./launch.sh --smoke
 ```
 
-This creates a clearly labelled sample fixture, exercises the native editor and approval controls, renders the app to `preview.png` in the isolated data directory, and exits. It does not call an LLM. Actual writing quality and inference speed depend on your model and hardware.
+It verifies native editor construction, approval/reopening, settings dismissal without applying, settings reopening, language/colour application and reset, and preservation of song content. It renders `preview.png`, `settings.png` and `library.png` into that isolated directory and exits. It uses labelled fixtures and does not call an LLM.
 
 API references: [Ollama generate](https://docs.ollama.com/api/generate), [structured outputs](https://docs.ollama.com/capabilities/structured-outputs).
 

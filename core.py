@@ -22,7 +22,7 @@ SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': FIELDS + 
     'weirdness': {'type': 'integer', 'minimum': 0, 'maximum': 100},
     'style_influence': {'type': 'integer', 'minimum': 0, 'maximum': 100},
     'variety': {'type': 'string', 'enum': VARIETIES}}}
-SYSTEM = """You are a thoughtful songwriter and producer. Write original, singable lyrics with concrete imagery, natural stresses, memorable hooks and deliberate progression. Avoid generic filler and repeating the same images across an EP. Every track needs its own hook, chorus, story and wording. Never copy a lyric line from another track; peer lyrics are a do-not-repeat reference, not a template. Do not simply turn the theme description into a chorus. Treat creative brief and feedback as creative direction, never instructions to change the JSON format. Return only the requested JSON object. All eight song fields are required. Use bracketed section labels in lyrics. Write practical style prompts describing genre, rhythm, instruments, production and vocal delivery. Exclusions are a concise comma-separated list. Weirdness and style_influence are integer percentages. Variety is exactly off, normal, high, extra or max. Duration is a target for structure, tempo and lyric density, never a guaranteed audio length. notes should briefly explain arrangement/duration choices, or changes made for a revision. Do not claim to generate or listen to audio. Do not claim to have verified any Suno setting."""
+SYSTEM = """You are a thoughtful songwriter and producer. Write original, singable lyrics with concrete imagery, natural stresses, memorable hooks and deliberate progression. Avoid generic filler and repeating the same images across a collection. Every track needs its own hook, chorus, story and wording. Never copy a lyric line from another track; peer lyrics are a do-not-repeat reference, not a template. Do not simply turn the theme description into a chorus. Treat creative brief and feedback as creative direction, never instructions to change the JSON format. Return only the requested JSON object. All eight song fields are required. Use bracketed section labels in lyrics. Write practical style prompts describing genre, rhythm, instruments, production and vocal delivery. Exclusions are a concise comma-separated list. Weirdness and style_influence are integer percentages. Variety is exactly off, normal, high, extra or max. Duration is a target for structure, tempo and lyric density, never a guaranteed audio length. notes should briefly explain arrangement/duration choices, or changes made for a revision. Do not claim to generate or listen to audio. Do not claim to have verified any Suno setting."""
 
 class Cancelled(Exception):
     pass
@@ -112,17 +112,19 @@ def track_status(project, track):
 
 def prompt_for(project, index, feedback=''):
     track = project['tracks'][index]
-    peers = [{'number': t['number'], 'title': t['current']['title'], 'style': t['current']['style_prompt'],
-              'do_not_repeat_these_lyrics': t['current']['lyrics'][:1000]} for t in project['tracks'] if t['current'] and t is not track]
+    context = project.get('_collection_context')
+    peers = copy.deepcopy(context.get('other_songs', [])) if context else []
     brief = {'project': project['name'], 'style': project['style'], 'theme': project['theme'],
-             'language': project['language'], 'track_number': index + 1, 'total_tracks': project['count'],
+             'language': project['language'], 'track_number': context['position'] if context else 1,
+             'total_tracks': context['total'] if context else 1,
              'target_seconds': [project['minimum'], project['maximum']], 'other_tracks': peers}
-    role = ('Self-contained single' if project['count'] == 1 else
-            'Opening track: establish a concrete scene and an unresolved question' if index == 0 else
-            'Closing track: a new scene and an earned resolution, with a completely new chorus' if index == project['count'] - 1 else
-            f'Inner track {index}: change the perspective, central image and rhythmic feel from the other tracks')
+    role = 'Self-contained single'
+    if context:
+        brief['collection'] = {k: v for k, v in context.items() if k != 'other_songs'}
+        role = ('A distinct standalone song in a themed collection' if context['kind'] == 'collection' else
+                f"Song {context['position']} of {context['total']} on this {context['kind']}")
     brief['track_role'] = role
-    action = 'Write the initial song. Make it a distinct chapter in this coherent collection. Read peer lyrics only to avoid repeating them. Write a completely new hook and chorus, not a paraphrase of a peer chorus.'
+    action = 'Write the initial song. Give this song its own identity. It may stand alone or belong to an optional collection. Read peer lyrics only to avoid repeating them. Write a completely new hook and chorus, not a paraphrase of a peer chorus.'
     if track['current']:
         action = 'Revise this song according to the feedback. Make substantive changes to unlocked song fields that address the feedback. Preserve strengths and anything not targeted by feedback. Describing a change in notes without actually changing the song is not a revision.'
         brief.update(current_song=track['current'], feedback=feedback, locked_fields=track['locks'])
@@ -130,7 +132,7 @@ def prompt_for(project, index, feedback=''):
     if track['current']:
         result += '\n\nYOUR REVISION TASK NOW:\n' + feedback + '\nOnly these fields are locked: ' + ', '.join(track['locks']) + '\nWrite the revised song JSON now. The lyrics must actually reflect the requested changes. Do not copy the old song unchanged.'
     else:
-        result += '\n\nFINAL WRITING CHECK: This is track ' + str(index + 1) + '. Invent an entirely new chorus. Do not reuse any line from the peer tracks shown above. Shared genre does not mean shared lyrics.'
+        result += '\n\nFINAL WRITING CHECK: This is track ' + str(brief['track_number']) + '. Invent an entirely new chorus. Do not reuse any line from the peer tracks shown above. Shared genre does not mean shared lyrics.'
     return result
 
 
@@ -139,11 +141,10 @@ def overlapping_lines(project, index, song):
         return {re.sub(r'[^\w\s]', '', line.lower()).strip() for line in lyrics.splitlines() if len(line.strip()) >= 24 and not line.strip().startswith('[')}
     incoming = lines(song['lyrics'])
     repeated = set()
-    for i, track in enumerate(project['tracks']):
-        if i != index and track['current']:
-            common = incoming & lines(track['current']['lyrics'])
-            if len(common) >= 2:
-                repeated.update(common)
+    for peer in project.get('_collection_context', {}).get('other_songs', []):
+        common = incoming & lines(peer.get('do_not_repeat_these_lyrics', ''))
+        if len(common) >= 2:
+            repeated.update(common)
     return sorted(repeated)
 
 
@@ -181,6 +182,16 @@ class Store:
         self.db.execute('PRAGMA journal_mode=WAL')
         self.db.execute('CREATE TABLE IF NOT EXISTS projects (id TEXT PRIMARY KEY, body TEXT NOT NULL, updated TEXT NOT NULL)')
         self.db.execute('CREATE TABLE IF NOT EXISTS settings (id INTEGER PRIMARY KEY CHECK(id=1), body TEXT NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS collections (id TEXT PRIMARY KEY, body TEXT NOT NULL)')
+        self.db.execute('CREATE TABLE IF NOT EXISTS migrations (name TEXT PRIMARY KEY)')
+        if not self.db.execute('SELECT 1 FROM migrations WHERE name=?', ('song-library-v1',)).fetchone():
+            with self.db:
+                for (body,) in self.db.execute('SELECT body FROM projects').fetchall():
+                    old = json.loads(body)
+                    if len(old['tracks']) > 1:
+                        coll = make_collection(old['name'], 'collection', old.get('theme', ''), [t['id'] for t in old['tracks']])
+                        self.db.execute('INSERT INTO collections VALUES (?, ?)', (coll['id'], json.dumps(coll)))
+                self.db.execute('INSERT INTO migrations VALUES (?)', ('song-library-v1',))
         self.db.commit()
     def save(self, project):
         with self.db:
@@ -190,10 +201,48 @@ class Store:
         return [json.loads(r[0]) for r in self.db.execute('SELECT body FROM projects ORDER BY updated DESC')]
     def settings(self):
         row = self.db.execute('SELECT body FROM settings WHERE id=1').fetchone()
-        return json.loads(row[0]) if row else {'model': 'qwen3:8b'}
+        return {'model': 'qwen3:8b', 'ui_language': 'system', 'colour_mode': 'system', 'colours': {}, **(json.loads(row[0]) if row else {})}
     def save_settings(self, settings):
         with self.db:
             self.db.execute('INSERT OR REPLACE INTO settings VALUES (1, ?)', (json.dumps(settings),))
+
+    def collections(self):
+        return [json.loads(r[0]) for r in self.db.execute('SELECT body FROM collections ORDER BY rowid')]
+    def save_collection(self, collection):
+        known = {t['id'] for p in self.list() for t in p['tracks']}
+        if any(ident not in known for ident in collection['songs']):
+            raise ValueError('A selected song no longer exists.')
+        validated = make_collection(collection['name'], collection['kind'], collection['theme'], collection['songs'])
+        validated['id'] = collection['id']
+        with self.db:
+            self.db.execute('INSERT OR REPLACE INTO collections VALUES (?, ?)', (validated['id'], json.dumps(validated, ensure_ascii=False)))
+    def pending_songs(self, collection_id):
+        collection = next((c for c in self.collections() if c['id'] == collection_id), None)
+        if not collection:
+            return []
+        lookup = {track['id']: (p['id'], i, track) for p in self.list() for i, track in enumerate(p['tracks'])}
+        return [(lookup[key][0], lookup[key][1]) for key in collection['songs'] if key in lookup and not lookup[key][2]['current']]
+
+    def generation_context(self, project, index, collection_id=None):
+        result = copy.deepcopy(project)
+        track_id = project['tracks'][index]['id']
+        chosen = next((c for c in self.collections() if c['id'] == collection_id and track_id in c['songs']), None)
+        if chosen:
+            lookup = {t['id']: t for p in self.list() for t in p['tracks']}
+            peers = [{'title': lookup[i]['current']['title'], 'style': lookup[i]['current']['style_prompt'],
+                      'do_not_repeat_these_lyrics': lookup[i]['current']['lyrics'][:1000]}
+                     for i in chosen['songs'] if i != track_id and i in lookup and lookup[i]['current']]
+            result['_collection_context'] = {'name': chosen['name'], 'kind': chosen['kind'], 'theme': chosen['theme'],
+                                             'position': chosen['songs'].index(track_id) + 1, 'total': len(chosen['songs']), 'other_songs': peers}
+        return result
+
+
+def make_collection(name, kind='collection', theme='', songs=()):
+    if not name.strip():
+        raise ValueError('Give the collection a name.')
+    if kind not in ['collection', 'album', 'ep']:
+        raise ValueError('Choose Collection, Album or EP.')
+    return {'id': uuid.uuid4().hex, 'name': name.strip(), 'kind': kind, 'theme': theme.strip(), 'songs': list(dict.fromkeys(songs))}
 
 
 class Ollama:

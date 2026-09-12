@@ -9,7 +9,7 @@ versework_desktop="$HOME/.local/share/applications/io.versework.Studio.desktop"
   exit 1
 }
 mkdir -p -- "$versework_target" "$(dirname -- "$versework_desktop")"
-for versework_file in app.py core.py launch.sh setup-ollama.sh icon.svg README.md; do
+for versework_file in app.py core.py appearance.py i18n.py launch.sh setup-ollama.sh icon.svg README.md; do
   if [[ "$versework_source/$versework_file" != "$versework_target/$versework_file" ]]; then
     install -m 644 -- "$versework_source/$versework_file" "$versework_target/$versework_file"
   fi
@@ -22,7 +22,7 @@ from pathlib import Path
 target = os.environ['VERSEWORK_INSTALL_TARGET']
 def quote(s):
     return '"' + s.replace('\\', '\\\\').replace('"', '\\"').replace('`', '\\`').replace('$', '\\$').replace('%', '%%') + '"'
-Path(os.environ['VERSEWORK_DESKTOP_PATH']).write_text('[Desktop Entry]\nType=Application\nName=Versework — Song Creator\nComment=Write and revise EPs locally with Ollama\nExec=' + quote(target + '/launch.sh') + '\nIcon=' + target + '/icon.svg\nTerminal=false\nCategories=AudioVideo;Audio;\nKeywords=Song;Lyrics;Music;Suno;Ollama;EP;\nStartupNotify=true\nStartupWMClass=io.versework.Studio\n')
+Path(os.environ['VERSEWORK_DESKTOP_PATH']).write_text('[Desktop Entry]\nType=Application\nName=Versework — Song Creator\nComment=Write songs and organise collections locally with Ollama\nExec=' + quote(target + '/launch.sh') + '\nIcon=' + target + '/icon.svg\nTerminal=false\nCategories=AudioVideo;Audio;\nKeywords=Song;Lyrics;Music;Suno;Ollama;EP;\nStartupNotify=true\nStartupWMClass=io.versework.Studio\n')
 PYTHON
 if command -v desktop-file-validate >/dev/null; then
   desktop-file-validate "$versework_desktop"

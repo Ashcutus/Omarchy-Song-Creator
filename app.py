@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Native GTK 4 songwriting workspace for Omarchy."""
+"""Versework: a native, song-first GTK workspace."""
 import copy
 import json
 import os
@@ -14,33 +14,12 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk, Gio, GLib
 from core import (FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
-                  commit_version, restore_version, prompt_for, generate_song, track_status, song_text, export_text)
+                  make_collection, commit_version, restore_version, generate_song, track_status, song_text)
+from appearance import COLOUR_KEYS, LAYOUT_CSS, read_palette, colour_css, resolved_palette, valid_colour
+from i18n import LANGUAGES, set_language, system_language, t
 
 APP_ID = 'io.versework.Studio'
 DATA = Path(os.environ.get('VERSEWORK_DATA', str(Path.home() / '.local/share/versework/data')))
-CSS = b'''
-window { background: #171b20; color: #e6e5df; }
-headerbar { background: #20262c; border-bottom: 1px solid #343c43; }
-.sidebar { background: #11161b; padding: 16px; }
-.title { font-size: 28px; font-weight: 700; }
-.heading { font-size: 17px; font-weight: 700; }
-.caption { color: #a9b4bd; font-size: 12px; }
-.accent { color: #a9d8ca; }
-.card { background: #20262c; border-radius: 12px; padding: 18px; }
-button { background: #2b343c; color: #e6e5df; border: 1px solid #424c54; border-radius: 8px; padding: 8px 12px; }
-button:hover { background: #37434c; }
-button.suggested-action { background: #a9d8ca; color: #102c25; font-weight: 700; }
-entry, textview, textview text { background: #141a20; color: #e6e5df; }
-entry { padding: 7px; border-radius: 7px; }
-textview { padding: 10px; border-radius: 8px; }
-textview text { line-height: 1.4; }
-list { background: transparent; }
-list row { padding: 9px; border-radius: 8px; margin-bottom: 4px; }
-list row:selected { background: #2e4843; }
-separator { background: #333c44; }
-.error { color: #ffb4a9; }
-.success { color: #a9d8ca; }
-'''
 
 
 def box(vertical=True, spacing=10):
@@ -83,6 +62,14 @@ def text_input(text='', height=120):
     return w, scrolled(w, height)
 
 
+def dropdown(values, selected=None, captions=None):
+    w = Gtk.DropDown.new_from_strings(captions or [t(v) for v in values])
+    w.values = values
+    if selected in values:
+        w.set_selected(values.index(selected))
+    return w
+
+
 def text_of(widget):
     if isinstance(widget, Gtk.TextView):
         b = widget.get_buffer()
@@ -90,6 +77,8 @@ def text_of(widget):
     if isinstance(widget, Gtk.SpinButton):
         return widget.get_value_as_int()
     if isinstance(widget, Gtk.DropDown):
+        if hasattr(widget, 'values'):
+            return widget.values[widget.get_selected()]
         item = widget.get_selected_item()
         return item.get_string() if item else ''
     return widget.get_text()
@@ -101,70 +90,104 @@ def spin(value, low, high, step=1):
     return w
 
 
+def song_title(project, index):
+    track = project['tracks'][index]
+    if track['current']:
+        return track['current']['title']
+    return project['name'] + (f" · {index + 1}" if project['count'] > 1 else '')
+
+
+def collection_kind(collection):
+    return t({'collection': 'Collection', 'album': 'Album', 'ep': 'EP'}[collection['kind']])
+
+
 class Studio(Gtk.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.NON_UNIQUE if '--smoke' in sys.argv else Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.store = Store(DATA)
         self.settings = self.store.settings()
+        set_language(self.settings['ui_language'])
         self.ollama = Ollama()
         self.project = None
         self.track_index = None
-        self.editors = {}
-        self.lockers = {}
+        self.editors, self.lockers = {}, {}
         self.feedback_editor = None
+        self.collection_id = None
+        self.view = 'library'
         self.busy = False
+        self.settings_window = None
         self.cancel_event = threading.Event()
+        self.smoke_ok = False
         self.connect('activate', self.activate)
 
     def activate(self, *_):
         if hasattr(self, 'win'):
             self.win.present()
             return
-        Gtk.Settings.get_default().set_property('gtk-application-prefer-dark-theme', True)
-        provider = Gtk.CssProvider()
-        provider.load_from_data(CSS)
-        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
         self.win = Gtk.ApplicationWindow(application=self, title='Versework')
-        self.win.set_default_size(1280, 900)
+        self.win.set_default_size(1220, 840)
         self.win.connect('close-request', self.close)
+        self.layout_provider = Gtk.CssProvider()
+        self.layout_provider.load_from_data(LAYOUT_CSS.encode())
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.layout_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION)
+        self.native_colours = self.native_palette()
+        self.colour_provider = Gtk.CssProvider()
+        Gtk.StyleContext.add_provider_for_display(Gdk.Display.get_default(), self.colour_provider, Gtk.STYLE_PROVIDER_PRIORITY_APPLICATION + 1)
+        self.last_palette = None
+        self.refresh_theme()
+        GLib.timeout_add_seconds(3, self.refresh_theme)
+        self.build_shell()
+        self.win.present()
+        if '--smoke' in sys.argv:
+            GLib.timeout_add(300, self.smoke)
+
+    def refresh_theme(self):
+        palette = resolved_palette(self.settings)
+        if palette != self.last_palette:
+            self.colour_provider.load_from_data(colour_css(palette).encode())
+            self.last_palette = palette
+        return True
+
+    def build_shell(self):
         header = Gtk.HeaderBar()
-        header.set_title_widget(label('VERSEWORK  /  LOCAL SONG STUDIO', 'heading'))
-        header.pack_start(button('New project', self.new_dialog, True))
-        header.pack_end(button('Settings', self.settings_dialog))
+        header.set_title_widget(label('Versework', 'heading'))
+        self.new_song_button = button(t('New song'), self.new_dialog, True)
+        self.settings_button = button(t('Settings'), self.settings_dialog)
+        header.pack_start(self.new_song_button)
+        header.pack_end(self.settings_button)
         self.win.set_titlebar(header)
-        root = box()
-        root.set_spacing(0)
+        root = box(spacing=0)
         self.win.set_child(root)
         body = box(False, 0)
         body.set_vexpand(True)
         root.append(body)
-        self.sidebar = box()
+        self.sidebar = box(spacing=14)
         self.sidebar.add_css_class('sidebar')
-        self.sidebar.set_size_request(225, -1)
-        self.sidebar.append(label('YOUR PROJECTS', 'caption'))
-        self.projects_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
-        self.sidebar.append(scrolled(self.projects_list))
-        self.sidebar.append(label('Private by design\nWrites with local Ollama.\nCopy finished drafts to Suno.', 'caption'))
+        self.sidebar.set_size_request(190, -1)
+        self.sidebar.set_hexpand(False)
         body.append(self.sidebar)
         self.content = box()
         self.content.set_hexpand(True)
         body.append(self.content)
-        footer = box(False)
-        margins(footer, 12)
+        footer = margins(box(False), 10)
         self.spinner = Gtk.Spinner()
         footer.append(self.spinner)
-        self.status = label('Ready · all projects are saved on this computer', 'caption')
+        self.status = label(t('Saved on this computer'), 'caption')
         self.status.set_hexpand(True)
         footer.append(self.status)
-        self.stop_button = button('Stop writing', self.stop)
-        self.stop_button.set_visible(False)
+        self.stop_button = button(t('Stop writing'), self.stop)
+        self.stop_button.set_visible(self.busy)
         footer.append(self.stop_button)
         root.append(footer)
         self.refresh_projects()
-        self.welcome()
-        self.win.present()
-        if '--smoke' in sys.argv:
-            GLib.timeout_add(400, self.smoke)
+        if self.view == 'song' and self.project:
+            self.render_project()
+        else:
+            self.render_library()
+        if self.busy:
+            self.spinner.start()
+            self.content.set_sensitive(False)
+            self.sidebar.set_sensitive(False)
 
     def notify(self, text, error=False):
         self.status.set_text(text)
@@ -177,46 +200,108 @@ class Studio(Gtk.Application):
             container.remove(container.get_first_child())
 
     def refresh_projects(self):
-        self.clear(self.projects_list)
-        for p in self.store.list():
-            title = p['name']
-            approved = sum(t['approved'] for t in p['tracks'])
-            item = box(spacing=4)
-            item.append(label(title, 'heading'))
-            item.append(label(f"{p['count']} tracks · {approved} approved", 'caption'))
-            b = Gtk.Button(child=item)
-            b.connect('clicked', lambda _, ident=p['id']: self.load_project(ident))
-            self.projects_list.append(b)
+        self.clear(self.sidebar)
+        self.sidebar.append(button(t('Songs'), lambda: self.show_library(None)))
+        self.sidebar.append(label(t('Collections'), 'caption'))
+        listing = box(spacing=6)
+        for coll in self.store.collections():
+            inner = box(spacing=3)
+            inner.append(label(coll['name']))
+            inner.append(label(collection_kind(coll), 'caption'))
+            b = Gtk.Button(child=inner)
+            b.connect('clicked', lambda _, ident=coll['id']: self.show_library(ident))
+            listing.append(b)
+        self.sidebar.append(scrolled(listing))
+        self.sidebar.append(button(t('New collection'), self.collection_dialog))
 
-    def welcome(self):
-        self.clear(self.content)
-        c = margins(box(spacing=20), 42)
-        c.set_valign(Gtk.Align.CENTER)
-        self.content.append(c)
-        c.append(label('From a sound in your head\nto a collection of songs.', 'title'))
-        c.append(label('Build an EP, shape each song, and keep every version.', 'heading'))
-        for n, title, desc in [('01', 'Set the direction', 'Choose a sound, song count, duration range and rewrite limit.'),
-                                ('02', 'Write and review', 'Ollama drafts lyrics and all eight Suno fields. Give feedback and lock fields you love.'),
-                                ('03', 'Make it yours', 'Approve your favourites, copy them into Suno, and bring listening notes back here.')]:
-            row = box(False, 16)
-            row.add_css_class('card')
-            row.append(label(n, 'accent'))
-            col = box(spacing=5)
-            col.append(label(title, 'heading'))
-            col.append(label(desc, 'caption'))
-            row.append(col)
-            c.append(row)
-        c.append(button('Create your first project', self.new_dialog, True))
-        c.append(button('Set up local writing', self.settings_dialog))
+    def song_rows(self):
+        return [(p, i) for p in self.store.list() for i in range(len(p['tracks']))]
 
-    def load_project(self, ident):
+    def current_collection(self):
+        return next((c for c in self.store.collections() if c['id'] == self.collection_id), None)
+
+    def show_library(self, collection_id=None):
         if self.busy:
-            self.notify('Finish or stop writing before switching projects.')
+            self.notify(t('Finish or stop writing first.'))
             return
         if not self.flush():
             return
+        self.collection_id = collection_id
+        self.editors, self.lockers, self.feedback_editor = {}, {}, None
+        self.project, self.track_index = None, None
+        self.view = 'library'
+        self.render_library()
+
+    def render_library(self):
+        self.clear(self.content)
+        outer = margins(box(spacing=18), 28)
+        self.content.append(outer)
+        coll = self.current_collection()
+        head = box(False)
+        headings = box(spacing=6)
+        headings.set_hexpand(True)
+        headings.append(label(coll['name'] if coll else t('Songs'), 'title'))
+        headings.append(label(collection_kind(coll) if coll else t('Start with a song. Organise it later.'), 'caption'))
+        head.append(headings)
+        if coll:
+            head.append(button(t('Manage collection'), lambda: self.collection_dialog(coll)))
+            head.append(button(t('Review songs'), self.collection_feedback))
+            head.append(button(t('Export'), self.export_dialog))
+        outer.append(head)
+        if coll and coll['theme']:
+            outer.append(label(coll['theme']))
+        if coll and self.store.pending_songs(coll['id']):
+            outer.append(button(t('Write remaining drafts'), self.generate_missing, True))
+        songs = self.song_rows()
+        if coll:
+            mapping = {p['tracks'][i]['id']: (p, i) for p, i in songs}
+            songs = [mapping[ident] for ident in coll['songs'] if ident in mapping]
+        search = Gtk.SearchEntry(placeholder_text=t('Search songs'))
+        outer.append(search)
+        listing = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
+        self.library_list = listing
+        for p, i in songs:
+            track = p['tracks'][i]
+            row = Gtk.ListBoxRow()
+            row.add_css_class('library-row')
+            layout = box(False, 16)
+            layout.append(Gtk.Image.new_from_icon_name('audio-x-generic-symbolic'))
+            description = box(spacing=5)
+            description.set_hexpand(True)
+            description.append(label(song_title(p, i), 'heading'))
+            brief_label = label(p.get('theme') or p['style'], 'caption')
+            brief_label.set_lines(2)
+            description.append(brief_label)
+            description.append(label(t(track_status(p, track)), 'caption'))
+            layout.append(description)
+            layout.append(Gtk.Image.new_from_icon_name('go-next-symbolic'))
+            row.set_child(layout)
+            row.song_ref = (p['id'], i)
+            row.search_text = (song_title(p, i) + ' ' + p.get('theme', '') + ' ' + p['style']).casefold()
+            listing.append(row)
+        listing.connect('row-activated', lambda _, row: self.load_project(*row.song_ref))
+        listing.set_filter_func(lambda row: search.get_text().casefold() in row.search_text)
+        search.connect('search-changed', lambda *_: listing.invalidate_filter())
+        outer.append(scrolled(listing))
+        if not songs:
+            empty = box(spacing=12)
+            empty.set_valign(Gtk.Align.CENTER)
+            empty.append(label(t('No songs yet'), 'heading'))
+            empty.append(label(t('Write independently, or gather songs around a theme and shape an album or EP.'), 'caption'))
+            empty.append(button(t('New song'), self.new_dialog, True))
+            outer.append(empty)
+        else:
+            outer.append(label(t('Songs: {n}', n=len(songs)), 'caption'))
+
+    def welcome(self):
+        self.show_library()
+
+    def load_project(self, ident, index=0):
+        if self.busy or not self.flush():
+            return
         self.project = next(p for p in self.store.list() if p['id'] == ident)
-        self.track_index = None
+        self.track_index = index
+        self.view = 'song'
         self.render_project()
 
     def render_project(self):
@@ -224,138 +309,109 @@ class Studio(Gtk.Application):
         self.clear(self.content)
         outer = margins(box(spacing=16), 24)
         self.content.append(outer)
-        top = box(False)
-        titles = box(spacing=4)
-        titles.set_hexpand(True)
-        titles.append(label(self.project['name'], 'title'))
-        p = self.project
-        titles.append(label(f"{p['count']} songs · {p['minimum']}–{p['maximum']} sec · {p['limit']} rewrites per song", 'caption'))
-        top.append(titles)
-        top.append(button('Export EP', self.export_dialog))
-        outer.append(top)
-        brief = label(p['style'], 'caption')
-        brief.set_max_width_chars(100)
-        brief.set_lines(3)
-        outer.append(brief)
-        actions = box(False)
-        self.generate_button = button('Write remaining drafts', self.generate_missing, True)
-        actions.append(self.generate_button)
-        actions.append(button('Feedback for EP', self.ep_feedback))
-        outer.append(actions)
-        lower = Gtk.Paned(orientation=Gtk.Orientation.HORIZONTAL, wide_handle=True)
-        lower.set_vexpand(True)
-        lower.set_position(245)
-        outer.append(lower)
-        self.track_list = Gtk.ListBox(selection_mode=Gtk.SelectionMode.SINGLE)
-        self.track_list.connect('row-selected', self.select_track)
-        left = scrolled(self.track_list)
-        left.set_size_request(225, -1)
-        lower.set_start_child(left)
-        self.editor_holder = box()
-        self.editor_holder.set_hexpand(True)
-        lower.set_end_child(scrolled(self.editor_holder))
-        self.refresh_tracks()
-        i = self.track_index if self.track_index is not None else 0
-        self.track_list.select_row(self.track_list.get_row_at_index(i))
-
-    def refresh_tracks(self):
-        self.rebuilding = True
-        self.clear(self.track_list)
-        for t in self.project['tracks']:
-            b = box(spacing=5)
-            b.append(label(f"{t['number']:02d}   {t['current']['title'] if t['current'] else 'Untitled track'}", 'heading'))
-            b.append(label(track_status(self.project, t), 'caption'))
-            b.append(label(f"Rewrites {t['rewrites']} / {self.project['limit']}", 'caption'))
-            self.track_list.append(b)
-        self.rebuilding = False
-
-    def select_track(self, _, row):
-        if getattr(self, 'rebuilding', False) or row is None:
-            return
-        if not self.flush():
-            return
-        self.track_index = row.get_index()
-        self.render_track()
-
-    def render_track(self):
-        self.clear(self.editor_holder)
-        self.editors, self.lockers, self.feedback_editor = {}, {}, None
-        c = margins(box(spacing=16), 16)
-        self.editor_holder.append(c)
-        track = self.project['tracks'][self.track_index]
+        p, i = self.project, self.track_index or 0
+        self.track_index = i
+        track = p['tracks'][i]
+        breadcrumb = box(False)
+        coll = self.current_collection()
+        breadcrumb.append(button(coll['name'] if coll else t('Songs'), lambda: self.show_library(self.collection_id)))
+        title = label(song_title(p, i), 'title')
+        title.set_hexpand(True)
+        breadcrumb.append(title)
+        breadcrumb.append(button(t('Organise song'), self.organise_dialog))
+        outer.append(breadcrumb)
+        sub = box(False, 16)
+        sub.append(label(t(track_status(p, track)), 'accent'))
+        sub.append(label(t('Target: {minimum}–{maximum} seconds', minimum=p['minimum'], maximum=p['maximum']), 'caption'))
+        sub.append(label(t('Rewrites: {used}/{limit}', used=track['rewrites'], limit=p['limit']), 'caption'))
+        outer.append(sub)
         if not track['current']:
-            c.append(label(f"Track {track['number']:02d}", 'title'))
-            c.append(label('A new chapter, waiting to be written.', 'heading'))
-            c.append(label('Your local model will use the project brief and the other tracks to create a distinct song.', 'caption'))
-            c.append(button('Write this song', lambda: self.start_jobs([self.track_index]), True))
+            panel = margins(box(spacing=16), 20)
+            panel.add_css_class('card')
+            panel.append(label(t('Song brief'), 'heading'))
+            panel.append(label(p['style']))
+            if p['theme']:
+                panel.append(label(p['theme'], 'caption'))
+            panel.append(label(t('Lyric language') + ': ' + p['language'], 'caption'))
+            panel.append(button(t('Write song'), lambda: self.start_jobs([i]), True))
+            outer.append(panel)
             return
+        toolbar = box(False)
+        toolbar.append(button(t('Save'), self.save_edits))
+        toolbar.append(button(t('Copy song'), self.copy_current))
+        toolbar.append(button(t('Versions'), self.history_dialog))
+        toolbar.append(button(t('Export song'), self.export_dialog))
+        toolbar.append(button(t('Reopen') if track['approved'] else t('Approve song'), self.approve, not track['approved']))
+        outer.append(toolbar)
+        self.editor_stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        switcher = Gtk.StackSwitcher(stack=self.editor_stack, halign=Gtk.Align.START)
+        outer.append(switcher)
+        outer.append(self.editor_stack)
+        self.editor_stack.set_vexpand(True)
+        pages = {}
+        for name in ['Lyrics', 'Sound', 'Review']:
+            page = margins(box(spacing=16), 6)
+            pages[name] = page
+            self.editor_stack.add_titled(scrolled(page), name, t(name))
+        self.editor_stack.set_visible_child_name(getattr(self, 'editor_tab', 'Lyrics'))
+        self.editor_stack.connect('notify::visible-child-name', lambda *_: setattr(self, 'editor_tab', self.editor_stack.get_visible_child_name()))
         song = track['current']
-        title_row = box(False)
-        title_row.append(label(track_status(self.project, track), 'accent'))
-        title_row.append(button('Reopen' if track['approved'] else 'Approve song', self.approve, not track['approved']))
-        title_row.append(button('Versions', self.history_dialog))
-        title_row.append(button('Copy all', lambda: self.copy_current()))
-        c.append(title_row)
-        c.append(label('Lock a field to keep it exactly as written during AI revisions.', 'caption'))
         for field in FIELDS:
-            field_box = box(spacing=6)
-            heading = box(False)
-            l = label(LABELS[field], 'heading')
-            l.set_hexpand(True)
-            heading.append(l)
-            lock = Gtk.CheckButton(label='Lock')
-            lock.set_active(field in track['locks'])
+            target = pages['Lyrics'] if field in ['title', 'lyrics'] else pages['Sound']
+            fieldbox = box(spacing=7)
+            head = box(False)
+            title = label(t(LABELS[field]), 'heading')
+            title.set_hexpand(True)
+            head.append(title)
+            lock = Gtk.CheckButton(label=t('Lock'), active=field in track['locks'])
             lock.set_sensitive(not track['approved'] and not self.busy)
             self.lockers[field] = lock
-            heading.append(lock)
-            heading.append(button('Copy', lambda f=field: self.copy_field(f)))
-            field_box.append(heading)
+            head.append(lock)
+            head.append(button(t('Copy'), lambda f=field: self.copy_field(f)))
+            fieldbox.append(head)
             if field in ['lyrics', 'style_prompt', 'exclusions']:
-                w, wrap = text_input(song[field], 310 if field == 'lyrics' else 92)
-                w.set_editable(not track['approved'] and not self.busy)
-                field_box.append(wrap)
+                widget, wrap = text_input(song[field], 350 if field == 'lyrics' else 100)
+                fieldbox.append(wrap)
             elif field in ['weirdness', 'style_influence']:
-                w = spin(song[field], 0, 100)
-                field_box.append(w)
+                widget = spin(song[field], 0, 100)
+                fieldbox.append(widget)
             elif field in ['variety', 'vocal_gender']:
-                choices = VARIETIES if field == 'variety' else VOCALS
-                w = Gtk.DropDown.new_from_strings(choices)
-                w.set_selected(choices.index(song[field]))
-                field_box.append(w)
+                widget = dropdown(VARIETIES if field == 'variety' else VOCALS, song[field])
+                fieldbox.append(widget)
             else:
-                w = Gtk.Entry(text=song[field])
-                field_box.append(w)
-            w.set_sensitive(not track['approved'] and not self.busy)
-            self.editors[field] = w
-            c.append(field_box)
-        c.append(button('Save edits', self.save_edits))
+                widget = Gtk.Entry(text=song[field])
+                fieldbox.append(widget)
+            widget.set_sensitive(not track['approved'] and not self.busy)
+            self.editors[field] = widget
+            target.append(fieldbox)
+        pages['Lyrics'].append(label(t('Lock fields to preserve them exactly during rewrites.'), 'caption'))
+        review = pages['Review']
+        review.append(label(t('Feedback'), 'heading'))
+        review.append(label(t('Describe what to change, or add listening notes from Suno.'), 'caption'))
+        self.feedback_editor, wrap = text_input(track.get('feedback', ''), 170)
+        self.feedback_editor.set_sensitive(not track['approved'] and not self.busy)
+        review.append(wrap)
+        revise = button(t('Rewrite song'), self.rewrite, True)
+        revise.set_sensitive(not track['approved'] and not self.busy and track['rewrites'] < p['limit'])
+        review.append(revise)
         if song.get('notes'):
-            c.append(label(song['notes'], 'caption'))
-        c.append(Gtk.Separator())
-        c.append(label('Review & rewrite', 'heading'))
-        c.append(label('Describe what to change. You can also paste listening notes after trying the song in Suno.', 'caption'))
-        self.feedback_editor, wrap = text_input(track.get('feedback', ''), 110)
-        self.feedback_editor.set_sensitive(not self.busy and not track['approved'])
-        c.append(wrap)
-        r = button(f"Rewrite song · {track['rewrites']}/{self.project['limit']} used", self.rewrite, True)
-        r.set_sensitive(not self.busy and not track['approved'] and track['rewrites'] < self.project['limit'])
-        c.append(r)
-        c.append(label('Duration is an arrangement target. Actual audio length is determined in Suno.', 'caption'))
+            review.append(label(song['notes'], 'caption'))
+        review.append(label(t('Duration is a writing target; Suno determines the audio length.'), 'caption'))
 
     def flush(self):
-        if not self.project or self.track_index is None or not self.editors:
+        if not self.project or self.track_index is None or not self.editors or self.busy:
             return True
         try:
             candidate = copy.deepcopy(self.project)
-            t = candidate['tracks'][self.track_index]
-            if not t['approved']:
+            track = candidate['tracks'][self.track_index]
+            if not track['approved']:
                 song = {k: text_of(w) for k, w in self.editors.items()}
-                song['notes'] = t['current'].get('notes', '')
-                if song != t['current']:
+                song['notes'] = track['current'].get('notes', '')
+                if song != track['current']:
                     commit_version(candidate, self.track_index, song, 'edit')
-                t['locks'] = [k for k, w in self.lockers.items() if w.get_active()]
+                track['locks'] = [k for k, w in self.lockers.items() if w.get_active()]
                 if self.feedback_editor:
-                    t['feedback'] = text_of(self.feedback_editor)
+                    track['feedback'] = text_of(self.feedback_editor)
                 self.store.save(candidate)
                 self.project = candidate
             return True
@@ -365,9 +421,8 @@ class Studio(Gtk.Application):
 
     def save_edits(self):
         if self.flush():
-            self.refresh_projects()
             self.render_project()
-            self.notify('Edits saved. Manual edits do not use an AI rewrite.')
+            self.notify(t('Edits saved.'))
 
     def copy_field(self, field):
         self.copy(str(text_of(self.editors[field])))
@@ -378,166 +433,398 @@ class Studio(Gtk.Application):
 
     def copy(self, value):
         self.win.get_clipboard().set(value)
-        self.notify('Copied to clipboard.')
+        self.notify(t('Copied to clipboard.'))
 
-    def dialog(self, title, width=650, height=640):
-        w = Gtk.Window(title=title, transient_for=self.win, modal=True)
-        w.set_default_size(width, height)
-        child = margins(box(spacing=14), 24)
-        w.set_child(scrolled(child))
-        return w, child
+    def dialog(self, title, width=640, height=650):
+        window = Gtk.Window(title=title, transient_for=self.win, modal=True)
+        window.set_default_size(width, height)
+        header = Gtk.HeaderBar(show_title_buttons=False)
+        header.set_title_widget(label(title, 'heading'))
+        header.pack_end(button(t('Close'), window.close))
+        window.set_titlebar(header)
+        controller = Gtk.EventControllerKey()
+        def key(_, keyval, *args):
+            if keyval == Gdk.KEY_Escape:
+                window.close()
+                return True
+            return False
+        controller.connect('key-pressed', key)
+        window.add_controller(controller)
+        window.escape_controller = controller
+        child = margins(box(spacing=16), 22)
+        root = box(spacing=0)
+        root.append(scrolled(child))
+        window.actions = margins(box(False), 16)
+        window.actions.set_visible(False)
+        root.append(window.actions)
+        window.set_child(root)
+        return window, child
 
     def new_dialog(self):
         if self.busy:
-            self.notify('Finish or stop writing before starting another project.')
+            self.notify(t('Finish or stop writing first.'))
             return
-        w, c = self.dialog('New project')
-        c.append(label('What does this record sound like?', 'title'))
+        window, c = self.dialog(t('New song'))
         entries = {}
-        for key, title, value in [('name', 'Project name', ''), ('language', 'Lyric language', 'English')]:
-            c.append(label(title, 'heading'))
+        for key, title, value in [('name', 'Working title', ''), ('language', 'Lyric language', 'English')]:
+            c.append(label(t(title), 'heading'))
             entries[key] = Gtk.Entry(text=value)
             c.append(entries[key])
-        c.append(label('Style prompt', 'heading'))
-        style, wrap = text_input('', 130)
+        c.append(label(t('Style prompt'), 'heading'))
+        style, wrap = text_input('', 110)
         c.append(wrap)
-        c.append(label('Theme / lyrical direction (optional)', 'heading'))
-        theme, wrap = text_input('', 85)
+        c.append(label(t('Optional theme'), 'heading'))
+        theme, wrap = text_input('', 80)
         c.append(wrap)
-        count, minimum, maximum, limit = spin(4, 1, 20), spin(180, 30, 1200, 15), spin(240, 30, 1200, 15), spin(3, 0, 20)
-        for title, inp in [('Songs', count), ('Minimum length (seconds)', minimum), ('Maximum length (seconds)', maximum), ('AI rewrites per song', limit)]:
-            r = box(False)
-            l = label(title)
+        collections = self.store.collections()
+        ids = [''] + [x['id'] for x in collections]
+        pick = dropdown(ids, self.collection_id or '', [t('No collection')] + [x['name'] for x in collections])
+        c.append(label(t('Collection (optional)'), 'heading'))
+        c.append(pick)
+        count, minimum, maximum, limit = spin(1, 1, 20), spin(180, 30, 1200, 15), spin(240, 30, 1200, 15), spin(3, 0, 20)
+        for title, widget in [('Song count', count), ('Minimum length (seconds)', minimum), ('Maximum length (seconds)', maximum), ('AI rewrites per song', limit)]:
+            row = box(False)
+            l = label(t(title))
             l.set_hexpand(True)
-            r.append(l)
-            r.append(inp)
-            c.append(r)
-        err = label('', 'error')
-        c.append(err)
+            row.append(l)
+            row.append(widget)
+            c.append(row)
+        error = label('', 'error')
+        c.append(error)
         def save():
             try:
-                p = create_project(text_of(entries['name']), text_of(style), text_of(count), text_of(minimum), text_of(maximum), text_of(limit), text_of(theme), text_of(entries['language']))
                 if not self.flush():
-                    raise ValueError('Save or correct the current song first.')
+                    return
+                p = create_project(text_of(entries['name']) or t('Untitled song'), text_of(style), text_of(count), text_of(minimum), text_of(maximum), text_of(limit), text_of(theme), text_of(entries['language']))
                 self.store.save(p)
-                self.project, self.track_index = p, None
+                coll_id = text_of(pick)
+                if coll_id:
+                    coll = next(c for c in self.store.collections() if c['id'] == coll_id)
+                    coll['songs'].extend(track['id'] for track in p['tracks'])
+                    self.store.save_collection(coll)
+                self.project, self.track_index, self.collection_id, self.view = p, 0, coll_id or None, 'song'
                 self.refresh_projects()
                 self.render_project()
-                w.destroy()
+                window.close()
             except Exception as e:
-                err.set_text(str(e))
-        c.append(button('Create project', save, True))
-        w.present()
+                error.set_text(str(e))
+        c.append(button(t('Create'), save, True))
+        window.present()
+        return window
+
+    def collection_dialog(self, existing=None):
+        if self.busy or not self.flush():
+            return
+        window, c = self.dialog(t('Manage collection') if existing else t('New collection'), 720, 740)
+        current = copy.deepcopy(existing) if existing else make_collection(t('Collection'))
+        c.append(label(t('Name'), 'heading'))
+        name = Gtk.Entry(text=current['name'] if existing else '')
+        c.append(name)
+        c.append(label(t('Format'), 'heading'))
+        kind = dropdown(['collection', 'album', 'ep'], current['kind'], [t('Collection'), t('Album'), t('EP')])
+        c.append(kind)
+        c.append(label(t('Optional theme'), 'heading'))
+        theme, wrap = text_input(current['theme'], 80)
+        c.append(wrap)
+        c.append(label(t('Choose songs and their running order. Their drafts and history stay intact.'), 'caption'))
+        lookup = {p['tracks'][i]['id']: song_title(p, i) for p, i in self.song_rows()}
+        ordered = [ident for ident in current['songs'] if ident in lookup] + [ident for ident in lookup if ident not in current['songs']]
+        selected = set(current['songs'])
+        rows = box(spacing=7)
+        c.append(rows)
+        checks = {}
+        def render():
+            self.clear(rows)
+            checks.clear()
+            for index, ident in enumerate(ordered):
+                row = box(False)
+                check = Gtk.CheckButton(label=lookup[ident], active=ident in selected, hexpand=True)
+                check.connect('toggled', lambda w, key=ident: selected.add(key) if w.get_active() else selected.discard(key))
+                checks[ident] = check
+                row.append(check)
+                def move(offset, pos=index):
+                    target = pos + offset
+                    if 0 <= target < len(ordered):
+                        ordered[pos], ordered[target] = ordered[target], ordered[pos]
+                        render()
+                up = button('↑', lambda fn=move: fn(-1))
+                up.set_tooltip_text(t('Move up'))
+                up.set_sensitive(index > 0)
+                down = button('↓', lambda fn=move: fn(1))
+                down.set_tooltip_text(t('Move down'))
+                down.set_sensitive(index < len(ordered) - 1)
+                row.append(up)
+                row.append(down)
+                rows.append(row)
+        render()
+        error = label('', 'error')
+        c.append(error)
+        def save():
+            try:
+                changed = make_collection(name.get_text(), text_of(kind), text_of(theme), [key for key in ordered if key in selected])
+                if existing:
+                    changed['id'] = existing['id']
+                self.store.save_collection(changed)
+                window.close()
+                self.refresh_projects()
+                self.show_library(changed['id'])
+            except Exception as e:
+                error.set_text(str(e))
+        c.append(button(t('Save collection'), save, True))
+        window.present()
+        return window
+
+    def organise_dialog(self):
+        if self.busy or not self.flush():
+            return
+        window, c = self.dialog(t('Organise song'), 560, 430)
+        c.append(label(t('Add this song to any collection. Unchecking removes only the membership.'), 'caption'))
+        track_id = self.project['tracks'][self.track_index]['id']
+        collections = self.store.collections()
+        checks = []
+        for coll in collections:
+            check = Gtk.CheckButton(label=coll['name'], active=track_id in coll['songs'])
+            c.append(check)
+            checks.append((coll, check))
+        if not checks:
+            c.append(label(t('No collections yet. Create one from the sidebar.')))
+        error = label('', 'error')
+        c.append(error)
+        def save():
+            try:
+                for coll, check in checks:
+                    if check.get_active() and track_id not in coll['songs']:
+                        coll['songs'].append(track_id)
+                    elif not check.get_active():
+                        coll['songs'] = [i for i in coll['songs'] if i != track_id]
+                    self.store.save_collection(coll)
+                self.refresh_projects()
+                window.close()
+            except Exception as e:
+                error.set_text(str(e))
+        c.append(button(t('Save'), save, True))
+        window.present()
 
     def settings_dialog(self):
-        w, c = self.dialog('Local writing settings', 630, 570)
-        c.append(label('Your writing engine', 'title'))
-        c.append(label('Versework connects only to Ollama on this computer (127.0.0.1:11434). It does not use a cloud API.', 'caption'))
-        c.append(label('Local model', 'heading'))
+        if self.settings_window:
+            self.settings_window.present()
+            return self.settings_window
+        window, c = self.dialog(t('Settings'), 670, 740)
+        self.settings_window = window
+        def closing(*_):
+            self.settings_window = None
+            return False
+        window.connect('close-request', closing)
+        c.append(label(t('Appearance'), 'heading'))
+        mode = dropdown(['system', 'custom'], self.settings.get('colour_mode', 'system'), [t('Follow Omarchy theme'), t('Custom colours')])
+        c.append(mode)
+        palette = resolved_palette(self.settings) or self.native_colours
+        colour_entries = {}
+        colour_box = box(spacing=9)
+        c.append(colour_box)
+        for key, title in zip(COLOUR_KEYS, ['Background', 'Surface', 'Text', 'Accent']):
+            row = box(False)
+            caption = label(t(title))
+            caption.set_hexpand(True)
+            row.append(caption)
+            entry = Gtk.Entry(text=palette[key], width_chars=9, max_length=7)
+            colour_entries[key] = entry
+            picker = Gtk.ColorDialogButton(dialog=Gtk.ColorDialog(with_alpha=False))
+            rgba = Gdk.RGBA()
+            rgba.parse(palette[key])
+            picker.set_rgba(rgba)
+            def picked(w, _, field=entry):
+                value = w.get_rgba()
+                field.set_text('#%02X%02X%02X' % tuple(round(v * 255) for v in (value.red, value.green, value.blue)))
+            picker.connect('notify::rgba', picked)
+            def typed(w, target=picker):
+                if valid_colour(w.get_text()):
+                    colour = Gdk.RGBA()
+                    colour.parse(w.get_text())
+                    if not target.get_rgba().equal(colour):
+                        target.set_rgba(colour)
+            entry.connect('changed', typed)
+            row.append(entry)
+            row.append(picker)
+            colour_box.append(row)
+        def mode_changed(*_):
+            colour_box.set_sensitive(text_of(mode) == 'custom')
+        mode.connect('notify::selected', mode_changed)
+        mode_changed()
+        def reset():
+            mode.set_selected(0)
+            for key, colour in (read_palette() or self.native_colours).items():
+                colour_entries[key].set_text(colour)
+        c.append(button(t('Restore theme colours'), reset))
+        c.append(label(t('Colours affect Versework only. Theme changes are followed automatically.'), 'caption'))
+        c.append(Gtk.Separator())
+        c.append(label(t('Interface language'), 'heading'))
+        languages = dropdown([code for code, _ in LANGUAGES], self.settings.get('ui_language', 'system'), [t(title) if code == 'system' else title for code, title in LANGUAGES])
+        c.append(languages)
+        local_name = dict(LANGUAGES).get(system_language(), 'English')
+        c.append(label(t('System language: {language}', language=local_name), 'caption'))
+        c.append(label(t('Only the interface changes. Song text and lyric language stay unchanged.'), 'caption'))
+        c.append(Gtk.Separator())
+        expander = Gtk.Expander(label=t('Local writing'))
+        engine = box(spacing=12)
+        expander.set_child(engine)
+        c.append(expander)
+        engine.append(label(t('Only connects to Ollama on this computer.'), 'caption'))
+        engine.append(label(t('Local model')))
         model = Gtk.Entry(text=self.settings.get('model', 'qwen3:8b'))
-        c.append(model)
-        c.append(label('Choose an installed model below, or enter its exact name. Qwen3 8B is the starter model in the setup script.', 'caption'))
+        engine.append(model)
         listing = Gtk.DropDown.new_from_strings([])
-        c.append(listing)
+        engine.append(listing)
         listing.connect('notify::selected', lambda *_: model.set_text(text_of(listing)) if text_of(listing) else None)
-        status = label('Click Check connection to discover installed local models.', 'caption')
-        c.append(status)
+        state = label('', 'caption')
+        engine.append(state)
         def check():
-            status.set_text('Checking local Ollama…')
+            state.set_text(t('Checking local Ollama…'))
             def worker():
                 try:
                     names = self.ollama.models()
                     def done():
+                        if self.settings_window is not window:
+                            return
+                        previous = model.get_text()
                         listing.set_model(Gtk.StringList.new(names))
-                        if model.get_text() in names:
-                            listing.set_selected(names.index(model.get_text()))
-                        status.set_text('Connected · ' + ', '.join(names) if names else 'Connected, but no local models are installed. Run the setup script to download one.')
+                        if previous in names:
+                            listing.set_selected(names.index(previous))
+                        state.set_text(t('Connected: {models}', models=', '.join(names)) if names else t('No local models installed.'))
                     GLib.idle_add(done)
                 except Exception as e:
-                    GLib.idle_add(status.set_text, str(e))
+                    message = str(e)
+                    def failed():
+                        if self.settings_window is window:
+                            state.set_text(message)
+                    GLib.idle_add(failed)
             threading.Thread(target=worker, daemon=True).start()
-        c.append(button('Check connection', check))
         def start():
             exe = shutil.which('ollama')
             if not exe:
-                status.set_text('Ollama is not installed. Run setup-ollama.sh from the app folder; it installs the Arch packages and downloads the starter model.')
+                state.set_text(t('Ollama is not installed. Run setup-ollama.sh first.'))
                 return
             env = os.environ.copy()
             env.update(OLLAMA_HOST='127.0.0.1:11434', OLLAMA_NO_CLOUD='1', OLLAMA_VULKAN='1')
-            log_path = DATA / 'ollama.log'
-            with log_path.open('ab') as log:
+            with (DATA / 'ollama.log').open('ab') as log:
                 subprocess.Popen([exe, 'serve'], env=env, stdout=log, stderr=log, start_new_session=True)
-            status.set_text('Ollama start requested. Click Check connection in a moment.')
-        c.append(button('Start Ollama', start))
-        def save():
-            name = model.get_text().strip()
-            if not name or 'cloud' in name.lower():
-                status.set_text('Enter the name of a local model, not a cloud model.')
-                return
-            self.settings = {'model': name}
-            self.store.save_settings(self.settings)
-            self.notify(f'Writing model saved: {name}')
-            w.destroy()
-        c.append(button('Save settings', save, True))
-        c.append(label('Projects and version history: ' + str(DATA), 'caption'))
-        w.present()
+            state.set_text(t('Ollama start requested. Check connection in a moment.'))
+        controls = box(False)
+        controls.append(button(t('Check connection'), check))
+        controls.append(button(t('Start Ollama'), start))
+        engine.append(controls)
+        error = label('', 'error')
+        c.append(error)
+        def apply():
+            try:
+                if not model.get_text().strip() or 'cloud' in model.get_text().lower():
+                    raise ValueError(t('Choose a local model.'))
+                colours = {key: entry.get_text() for key, entry in colour_entries.items()}
+                if text_of(mode) == 'custom':
+                    colour_css(colours)
+                if not self.flush():
+                    return
+                saved = {**self.settings, 'model': model.get_text().strip(), 'colour_mode': text_of(mode), 'colours': colours,
+                         'ui_language': text_of(languages)}
+                self.store.save_settings(saved)
+                self.settings = saved
+                set_language(saved['ui_language'])
+                self.refresh_theme()
+                window.close()
+                self.new_song_button.set_label(t('New song'))
+                self.settings_button.set_label(t('Settings'))
+                self.stop_button.set_label(t('Stop writing'))
+                self.refresh_projects()
+                if self.view == 'song' and self.project:
+                    self.render_project()
+                else:
+                    self.render_library()
+                if self.busy:
+                    self.content.set_sensitive(False)
+                    self.sidebar.set_sensitive(False)
+                self.settings_dialog()
+                self.notify(t('Settings saved.'))
+            except Exception as e:
+                error.set_text(str(e))
+        window.actions.append(button(t('Apply'), apply, True))
+        window.actions.append(button(t('Close'), window.close))
+        window.actions.set_visible(True)
+        # Named handles also make real GTK interaction tests precise.
+        window.controls = {'language': languages, 'mode': mode, 'colours': colour_entries, 'model': model,
+                           'apply': apply, 'close': window.close, 'reset': reset}
+        window.present()
+        return window
+
+    def native_palette(self):
+        context = self.win.get_style_context()
+        result = {}
+        for key, token in [('background', 'theme_bg_color'), ('surface', 'theme_bg_color'), ('foreground', 'theme_fg_color'), ('accent', 'theme_selected_bg_color')]:
+            found, colour = context.lookup_color(token)
+            if not found:
+                colour = self.win.get_color()
+            result[key] = '#%02X%02X%02X' % tuple(round(v * 255) for v in (colour.red, colour.green, colour.blue))
+        return result
 
     def approve(self):
         if self.busy or not self.flush():
             return
         p = copy.deepcopy(self.project)
-        t = p['tracks'][self.track_index]
-        t['approved'] = not t['approved']
+        p['tracks'][self.track_index]['approved'] = not p['tracks'][self.track_index]['approved']
         self.store.save(p)
         self.project = p
-        self.refresh_projects()
         self.render_project()
-        self.notify('Approval saved.' if t['approved'] else 'Song reopened. Its rewrite counter is unchanged.')
 
     def generate_missing(self):
         if self.flush():
-            self.start_jobs([i for i, t in enumerate(self.project['tracks']) if not t['current']])
+            self.start_jobs([], song_jobs=self.store.pending_songs(self.collection_id))
 
     def rewrite(self):
         if not self.flush():
             return
         feedback = self.project['tracks'][self.track_index]['feedback'].strip()
         if not feedback:
-            self.notify('Add feedback describing what you want changed.', True)
+            self.notify(t('Add feedback before requesting a rewrite.'), True)
             return
         self.start_jobs([self.track_index], feedback)
 
-    def ep_feedback(self):
+    def collection_feedback(self):
         if self.busy or not self.flush():
             return
-        w, c = self.dialog('Feedback for EP', 620, 570)
-        c.append(label('Shape the collection', 'title'))
-        feedback, wrap = text_input('', 140)
+        collection = self.current_collection()
+        if not collection:
+            return
+        lookup = {p['tracks'][i]['id']: (p, i) for p, i in self.song_rows()}
+        window, c = self.dialog(t('Review songs'), 640, 600)
+        c.append(label(t('Describe what to change, or add listening notes from Suno.'), 'caption'))
+        feedback, wrap = text_input('', 150)
         c.append(wrap)
-        c.append(label('Apply to these tracks. Approved songs and songs at their limit are protected.', 'caption'))
         choices = []
-        for i, t in enumerate(self.project['tracks']):
-            if t['current'] and not t['approved'] and t['rewrites'] < self.project['limit']:
-                cb = Gtk.CheckButton(label=f"{i + 1:02d}. {t['current']['title']}", active=True)
-                c.append(cb)
-                choices.append((i, cb))
-        err = label('', 'error')
-        c.append(err)
+        for key in collection['songs']:
+            if key not in lookup:
+                continue
+            project, index = lookup[key]
+            track = project['tracks'][index]
+            if track['current'] and not track['approved'] and track['rewrites'] < project['limit']:
+                check = Gtk.CheckButton(label=song_title(project, index), active=True)
+                c.append(check)
+                choices.append((project, index, check))
+        error = label('', 'error')
+        c.append(error)
         def run():
-            indices = [i for i, cb in choices if cb.get_active()]
-            if not text_of(feedback).strip() or not indices:
-                err.set_text('Enter feedback and select at least one eligible song.')
+            selected = [(project['id'], index) for project, index, check in choices if check.get_active()]
+            if not text_of(feedback).strip() or not selected:
+                error.set_text(t('Select songs and enter feedback.'))
                 return
-            w.destroy()
-            self.start_jobs(indices, text_of(feedback))
-        c.append(button('Rewrite selected tracks', run, True))
-        w.present()
+            window.close()
+            self.start_jobs([], text_of(feedback), selected)
+        c.append(button(t('Rewrite selected songs'), run, True))
+        window.present()
 
-    def start_jobs(self, indices, feedback=''):
+    def start_jobs(self, indices, feedback='', song_jobs=None):
         if self.busy or not self.flush():
             return
-        if not indices:
-            self.notify('All initial drafts are written. Review a track to request changes.')
+        if not indices and not song_jobs:
+            self.notify(t('All drafts are written.'))
             return
         self.busy = True
         self.cancel_event = threading.Event()
@@ -546,41 +833,44 @@ class Studio(Gtk.Application):
         self.content.set_sensitive(False)
         self.sidebar.set_sensitive(False)
         model = self.settings['model']
-        self.notify(f'Connecting to {model}…')
-        jobs = list(indices)
+        self.notify(t('Connecting to {model}…', model=model))
+        jobs = list(song_jobs) if song_jobs else [(self.project['id'], index) for index in indices]
         def next_job():
             if self.cancel_event.is_set():
-                self.finish('Writing stopped. Completed drafts are saved.')
+                self.finish(t('Writing stopped. Completed drafts are saved.'))
                 return
             if not jobs:
-                self.finish('Drafts saved. Ready for your review.')
+                self.finish(t('Drafts saved. Ready for review.'))
                 return
-            index = jobs.pop(0)
-            snap = copy.deepcopy(self.project)
+            ident, index = jobs.pop(0)
+            self.project = next(p for p in self.store.list() if p['id'] == ident)
+            self.track_index = index
+            self.view = 'song'
+            snap = self.store.generation_context(self.project, index, self.collection_id)
             kind = 'rewrite' if snap['tracks'][index]['current'] else 'initial'
             if kind == 'rewrite' and (snap['tracks'][index]['approved'] or snap['tracks'][index]['rewrites'] >= snap['limit']):
-                self.finish('A selected track is no longer eligible for rewriting.', True)
+                self.finish(t('This song cannot be rewritten until reopened or its limit allows it.'), True)
                 return
-            self.notify(f'Writing track {index + 1}/{snap["count"]} with {model}… First load can take a while.')
+            self.notify(t('Writing song {number}/{count}…', number=index + 1, count=snap['count']))
             def worker():
                 try:
                     if model not in self.ollama.models():
-                        raise ValueError(f'{model} is not installed locally. Open Settings or run setup-ollama.sh.')
-                    last_update = [0.0]
+                        raise ValueError(t('No local models installed.') + ' ' + model)
+                    last = [0.0]
                     def progress(size):
-                        if time.monotonic() - last_update[0] > 1:
-                            last_update[0] = time.monotonic()
-                            GLib.idle_add(self.notify, f'Writing track {index + 1}/{snap["count"]} · {size:,} characters received…')
+                        if time.monotonic() - last[0] > 1:
+                            last[0] = time.monotonic()
+                            GLib.idle_add(self.notify, t('Writing song {number}/{count} · {size} characters', number=index + 1, count=snap['count'], size=size))
                     data = generate_song(self.ollama, model, snap, index, feedback, self.cancel_event, progress)
                     GLib.idle_add(accept, index, kind, data)
                 except Cancelled:
-                    GLib.idle_add(self.finish, 'Writing stopped. Completed drafts are saved.')
+                    GLib.idle_add(self.finish, t('Writing stopped. Completed drafts are saved.'))
                 except Exception as e:
                     GLib.idle_add(self.finish, str(e), True)
             threading.Thread(target=worker, daemon=True).start()
         def accept(index, kind, data):
             if self.cancel_event.is_set():
-                self.finish('Writing stopped. No rewrite charged for the cancelled draft.')
+                self.finish(t('Writing stopped. Completed drafts are saved.'))
                 return
             try:
                 candidate = copy.deepcopy(self.project)
@@ -590,7 +880,6 @@ class Studio(Gtk.Application):
                 self.store.save(candidate)
                 self.project = candidate
                 self.track_index = index
-                self.refresh_projects()
             except Exception as e:
                 self.finish(str(e), True)
                 return
@@ -609,75 +898,90 @@ class Studio(Gtk.Application):
 
     def stop(self):
         self.cancel_event.set()
-        self.notify('Stopping at the next response from Ollama. Completed drafts stay saved.')
+        self.notify(t('Stopping after Ollama responds…'))
 
     def history_dialog(self):
         if not self.flush():
             return
-        w, c = self.dialog('Version history', 720, 720)
-        t = self.project['tracks'][self.track_index]
-        c.append(label('Every draft, kept.', 'title'))
-        c.append(label('Restoring preserves history and never resets the rewrite counter.', 'caption'))
-        choices = [f"Version {i+1} · {v['kind']} · {v['at']}" for i, v in enumerate(t['versions'])]
-        pick = Gtk.DropDown.new_from_strings(choices)
-        pick.set_selected(len(choices) - 1)
+        window, c = self.dialog(t('Version history'), 720, 720)
+        track = self.project['tracks'][self.track_index]
+        c.append(label(t('Restoring never resets the rewrite counter.'), 'caption'))
+        pick = Gtk.DropDown.new_from_strings([t('Version {number} · {kind} · {date}', number=i+1, kind=t(v['kind']), date=v['at']) for i, v in enumerate(track['versions'])])
+        pick.set_selected(len(track['versions']) - 1)
         c.append(pick)
-        preview, wrap = text_input('', 380)
+        preview, wrap = text_input('', 360)
         preview.set_editable(False)
         c.append(wrap)
         note = label('', 'caption')
         c.append(note)
         def changed(*_):
-            v = t['versions'][pick.get_selected()]
-            preview.get_buffer().set_text(song_text(v['song']))
-            note.set_text(v.get('feedback', '') or v['song'].get('notes', ''))
+            version = track['versions'][pick.get_selected()]
+            preview.get_buffer().set_text(song_text(version['song']))
+            note.set_text(version.get('feedback') or version['song'].get('notes', ''))
         pick.connect('notify::selected', changed)
         changed()
         def restore():
             try:
-                p = copy.deepcopy(self.project)
-                restore_version(p, self.track_index, pick.get_selected())
-                self.store.save(p)
-                self.project = p
+                candidate = copy.deepcopy(self.project)
+                restore_version(candidate, self.track_index, pick.get_selected())
+                self.store.save(candidate)
+                self.project = candidate
                 self.editors = {}
                 self.render_project()
-                w.destroy()
-                self.notify('Version restored. Rewrite counter unchanged.')
+                window.close()
+                self.notify(t('Version restored.'))
             except Exception as e:
                 note.set_text(str(e))
-        b = button('Restore selected version', restore, True)
-        b.set_sensitive(not t['approved'] and not self.busy)
-        c.append(b)
-        w.present()
+        restore_button = button(t('Restore version'), restore, True)
+        restore_button.set_sensitive(not track['approved'] and not self.busy)
+        c.append(restore_button)
+        window.present()
 
     def export_dialog(self):
         if not self.flush():
             return
-        w, c = self.dialog('Export project', 680, 650)
-        c.append(label('Take your songs with you', 'title'))
-        preview, wrap = text_input(export_text(self.project), 400)
+        collection = self.current_collection() if self.view == 'library' else None
+        if self.view == 'song':
+            rows = [(self.project, self.track_index)]
+            title = song_title(self.project, self.track_index)
+        else:
+            lookup = {p['tracks'][i]['id']: (p, i) for p, i in self.song_rows()}
+            rows = [lookup[key] for key in collection['songs'] if key in lookup] if collection else list(lookup.values())
+            title = collection['name'] if collection else t('Songs')
+        lines = ['# ' + title, '']
+        if collection:
+            lines.extend([collection_kind(collection), collection['theme'], ''])
+        for p, i in rows:
+            track = p['tracks'][i]
+            lines.extend(['## ' + song_title(p, i), t(track_status(p, track)), ''])
+            if track['current']:
+                lines.append(song_text(track['current']))
+        content = '\n'.join(lines)
+        snapshot = {'collection': collection, 'songs': [{'brief': {k:v for k,v in p.items() if k != 'tracks'}, 'track': p['tracks'][i]} for p,i in rows]}
+        window, c = self.dialog(t('Export songs'), 700, 650)
+        preview, wrap = text_input(content, 400)
         preview.set_editable(False)
         c.append(wrap)
-        c.append(button('Copy EP text', lambda: self.copy(export_text(self.project))))
+        c.append(button(t('Copy all'), lambda: self.copy(content)))
         def save():
-            picker = Gtk.FileChooserNative(title='Choose export folder', transient_for=w,
-                action=Gtk.FileChooserAction.SELECT_FOLDER, accept_label='Export here', cancel_label='Cancel')
+            picker = Gtk.FileChooserNative(title=t('Choose export folder'), transient_for=window,
+                action=Gtk.FileChooserAction.SELECT_FOLDER, accept_label=t('Export here'), cancel_label=t('Cancel'))
             def response(dialog, code):
                 if code == Gtk.ResponseType.ACCEPT:
                     try:
-                        folder = Path(dialog.get_file().get_path()) / ('Versework-' + self.project['id'][:8] + '-' + str(time.time_ns()))
+                        folder = Path(dialog.get_file().get_path()) / ('Versework-' + str(time.time_ns()))
                         folder.mkdir()
-                        (folder / 'songs.md').write_text(export_text(self.project))
-                        (folder / 'project.json').write_text(json.dumps(self.project, ensure_ascii=False, indent=2))
-                        self.notify('Exported lyrics, settings and full version history to ' + str(folder))
-                        w.destroy()
+                        (folder / 'songs.md').write_text(content)
+                        (folder / 'history.json').write_text(json.dumps(snapshot, ensure_ascii=False, indent=2))
+                        self.notify(t('Exported to {path}', path=folder))
+                        window.close()
                     except Exception as e:
-                        self.notify('Export failed: ' + str(e), True)
+                        self.notify(str(e), True)
                 dialog.destroy()
             picker.connect('response', response)
             picker.show()
-        c.append(button('Save text + project backup', save, True))
-        w.present()
+        c.append(button(t('Save text and history'), save, True))
+        window.present()
 
     def close(self, *_):
         if self.busy:
@@ -690,43 +994,93 @@ class Studio(Gtk.Application):
 
     def smoke(self):
         try:
-            p = create_project('After the streetlights', 'Warm analogue synths, understated indie pop, intimate vocals and late-night city imagery.', 4, 180, 240, 3)
-            song = {'title': 'Last Train Home', 'lyrics': '[Verse 1]\nYour coffee rings the timetable\nA small moon on the page\nWe leave the platform quietly\nAnd let the morning wait\n\n[Chorus]\nKeep one light on for me\nPast the end of the line\nThere is still a place to be\nWhere your window meets mine', 'style_prompt': 'Intimate indie synth-pop, 92 BPM, warm analogue pads, soft drum machine, rounded bass, close-miked female vocals, restrained verses opening into a luminous chorus.', 'exclusions': 'harsh distortion, stadium drums, vocal chops', 'vocal_gender': 'female', 'weirdness': 35, 'style_influence': 75, 'variety': 'normal', 'notes': 'Test fixture for interface verification. Not model-generated.'}
+            p = create_project('Last Train Home', 'Warm analogue synths, understated indie pop, intimate vocals.', 1, 180, 240, 3, 'Finding a little hope at the end of the night', 'English')
+            song = {'title': 'Last Train Home', 'lyrics': '[Verse 1]\nYour coffee rings the timetable\nA small moon on the page\nWe leave the platform quietly\nAnd let the morning wait\n\n[Chorus]\nKeep one light on for me\nPast the end of the line\nThere is still a place to be\nWhere your window meets mine', 'style_prompt': 'Intimate indie synth-pop, 92 BPM, warm analogue pads, soft drum machine, rounded bass, close-miked female vocals.', 'exclusions': 'harsh distortion, stadium drums', 'vocal_gender': 'female', 'weirdness': 35, 'style_influence': 75, 'variety': 'normal', 'notes': 'Interface verification fixture. Not model-generated.'}
             commit_version(p, 0, song, 'initial')
             self.store.save(p)
-            self.project = p
-            self.render_project()
-            self.copy_field('title')
-            self.flush()
+            collection = make_collection('After the streetlights', 'collection', 'Small stories from the city after dark', [p['tracks'][0]['id']])
+            self.store.save_collection(collection)
+            self.load_project(p['id'], 0)
             self.approve()
             self.approve()
-            print('GTK_SMOKE_OK', flush=True)
-            GLib.timeout_add(500, self.capture_smoke)
+            # Close must discard unsaved settings, even with an invalid model field.
+            before = copy.deepcopy(self.store.settings())
+            window = self.settings_dialog()
+            window.controls['model'].set_text('')
+            window.escape_controller.emit('key-pressed', Gdk.KEY_Escape, 0, Gdk.ModifierType(0))
+            assert self.settings_window is None
+            assert self.store.settings() == before
+            window = self.settings_dialog()
+            assert window.controls['model'].get_text() == before['model']
+            # Applying appearance/language cannot alter song content or its language.
+            window.controls['language'].set_selected(4)  # Français
+            window.controls['mode'].set_selected(1)
+            window.controls['colours']['accent'].set_text('#4375BB')
+            window.controls['apply']()
+            assert self.settings['ui_language'] == 'fr'
+            assert self.settings_window is not None
+            assert self.settings_window.get_title() == 'Paramètres'
+            assert self.store.list()[0]['language'] == 'English'
+            assert self.store.list()[0]['tracks'][0]['current'] == song
+            self.settings_window.controls['reset']()
+            self.settings_window.controls['language'].set_selected(0)
+            self.settings_window.controls['apply']()
+            self.settings_window.close()
+            assert self.settings['colour_mode'] == 'system'
+            assert self.settings['ui_language'] == 'system'
+            self.smoke_ok = True
+            print('GTK_SMOKE_OK: song editor, settings close/reopen, language and colour apply/reset', flush=True)
+            GLib.timeout_add(300, self.capture_smoke)
         except Exception:
             import traceback
             traceback.print_exc()
             self.quit()
         return False
 
+    def render_capture(self, window, path):
+        gi.require_version('Graphene', '1.0')
+        from gi.repository import Graphene
+        snapshot = Gtk.Snapshot.new()
+        Gtk.WidgetPaintable.new(window).snapshot(snapshot, window.get_width(), window.get_height())
+        node = snapshot.to_node()
+        rect = Graphene.Rect()
+        rect.init(0, 0, window.get_width(), window.get_height())
+        window.get_renderer().render_texture(node, rect).save_to_png(str(path))
+
     def capture_smoke(self):
         try:
-            gi.require_version('Graphene', '1.0')
-            from gi.repository import Graphene
-            paintable = Gtk.WidgetPaintable.new(self.win)
-            snapshot = Gtk.Snapshot.new()
-            paintable.snapshot(snapshot, self.win.get_width(), self.win.get_height())
-            node = snapshot.to_node()
-            rect = Graphene.Rect()
-            rect.init(0, 0, self.win.get_width(), self.win.get_height())
-            texture = self.win.get_renderer().render_texture(node, rect)
-            texture.save_to_png(str(DATA / 'preview.png'))
+            self.render_capture(self.win, DATA / 'preview.png')
+            self.settings_dialog()
+            GLib.timeout_add(300, self.capture_settings)
+        except Exception:
+            import traceback
+            traceback.print_exc()
+            self.smoke_ok = False
+            self.quit()
+        return False
+
+    def capture_settings(self):
+        try:
+            self.render_capture(self.settings_window, DATA / 'settings.png')
+            self.settings_window.close()
+            self.show_library()
+            GLib.timeout_add(300, self.capture_library)
+        except Exception:
+            self.smoke_ok = False
+            self.quit()
+        return False
+
+    def capture_library(self):
+        try:
+            self.render_capture(self.win, DATA / 'library.png')
             print('GTK_RENDER_OK', flush=True)
-        except Exception as e:
-            print('GTK_RENDER_ERROR', str(e), flush=True)
+        except Exception:
+            self.smoke_ok = False
         self.quit()
         return False
 
 
 if __name__ == '__main__':
     app = Studio()
-    app.run([sys.argv[0]])
+    result = app.run([sys.argv[0]])
+    sys.exit(1 if '--smoke' in sys.argv and not app.smoke_ok else result)

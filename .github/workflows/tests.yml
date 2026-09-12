@@ -9,5 +9,5 @@ jobs:
         with:
           python-version: '3.12'
       - run: python -m unittest discover -v
-      - run: python -m py_compile app.py core.py
+      - run: python -m py_compile app.py core.py appearance.py i18n.py
       - run: bash -n install.sh launch.sh setup-ollama.sh
