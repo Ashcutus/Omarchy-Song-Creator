@@ -5,11 +5,23 @@ A native GTK 4 app for writing **songs** with a local Ollama model. Develop a so
 ## Install on Omarchy
 
 ```bash
-git clone https://github.com/Ashcutus/Omarchy-Song-Creator.git
+git clone --branch feat/native-songwriting-app https://github.com/Ashcutus/Omarchy-Song-Creator.git
 cd Omarchy-Song-Creator
 ./install.sh
 ./setup-ollama.sh
 ```
+
+The installer asks where to place the music-note icon: **Left**, **Middle**, **Right**, or **No icon**. Click the icon to open Versework. It follows the bar's native theme. This requires the Omarchy shell and installation from a terminal in your running desktop session.
+
+To move the icon later, rerun the installer and choose another position. This moves the existing icon without duplicating it. **Keep current layout** leaves its placement unchanged; **No icon** disables a previously installed icon. Other bar widgets are preserved.
+
+For an installation without prompts:
+
+```bash
+./install.sh --bar-position middle
+```
+
+Use `left`, `middle`, `right`, `none`, or `keep`. Without a terminal or an explicit option, the installer keeps the existing bar layout. The commands above use the development branch while the initial pull request is awaiting merge.
 
 Search for **Versework — Song Creator** in the app launcher. The installer copies the app to `~/.local/share/versework/app` and adds a user-level desktop entry. Run `./install.sh` again after updating the repository, then close and reopen Versework. Your saved work is kept separately.
 
