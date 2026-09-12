@@ -84,7 +84,7 @@ Earlier multi-song projects are automatically represented as collections on firs
 
 ## Appearance and interface language
 
-**Settings** is always dismissible with **Close**, the window close control, or **Escape**. Closing discards changes that have not been applied. **Apply** saves preferences and keeps Settings open. Local writing controls are in a collapsible section and are not required for changing appearance or closing the window.
+**Settings** is always dismissible with **Close**, the window close control, or **Escape**. Closing discards changes that have not been applied. **Apply** saves preferences and closes Settings, including when nothing has changed. If validation fails, Settings stays open so you can correct the error. Local writing controls are in a collapsible section and are not required for changing appearance or closing the window.
 
 ### Theme and colours
 
