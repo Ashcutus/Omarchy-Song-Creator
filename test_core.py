@@ -206,7 +206,7 @@ class ProductionTests(unittest.TestCase):
             store = Store(Path(directory) / 'test.sqlite3')
             store.save(project)
             saved = store.list()[0]
-            self.assertEqual(saved['tracks'][0]['production'], direction)
+            self.assertEqual(saved['tracks'][0]['production'], production_direction(direction))
             first = prompt_for(saved, 0)
             second = prompt_for(saved, 1)
             self.assertIn('Fingerpicked guitar only.', first)
@@ -225,3 +225,97 @@ class ProductionTests(unittest.TestCase):
             production_direction({'density': 'invalid'})
         with self.assertRaises(ValueError):
             production_direction({'notes': 'x' * 1001})
+
+class ProductionDeliveryTests(unittest.TestCase):
+    def project(self, existing=False):
+        project = create_project('Test', 'Folk', 1, 180, 240, 3)
+        project['tracks'][0]['production'] = {
+            'density': 'stripped', 'dynamics': 'steady', 'vocals': 'intimate'}
+        if existing:
+            commit_version(project, 0, song(), 'initial')
+        return project
+
+    def compliant(self, project):
+        output = song('Revised')
+        for field, cues in production_requirements(project['tracks'][0]).items():
+            output[field] += '\n' + '\n'.join(cues)
+        return output
+
+    def test_new_and_rewrite_retry_omitted_cues(self):
+        from unittest.mock import Mock
+        for existing in (False, True):
+            with self.subTest(existing=existing):
+                project = self.project(existing)
+                expected = self.compliant(project)
+                client = Mock()
+                client.generate.side_effect = [song(), expected]
+                result = generate_song(client, 'local', project, 0, 'Less produced',
+                                       threading.Event())
+                self.assertEqual(result, expected)
+                self.assertEqual(client.generate.call_count, 2)
+                retry_prompt = client.generate.call_args.args[1]
+                self.assertIn('style_prompt: sparse arrangement', retry_prompt)
+                self.assertIn('lyrics: [Intimate solo vocal]', retry_prompt)
+                self.assertIn('exclusions: vocal doubling', retry_prompt)
+
+    def test_failure_preserves_new_and_existing_song(self):
+        from unittest.mock import Mock
+        for existing in (False, True):
+            project = self.project(existing)
+            before = copy.deepcopy(project)
+            client = Mock()
+            client.generate.return_value = song()
+            with self.assertRaisesRegex(ValueError, 'production directions'):
+                generate_song(client, 'local', project, 0, 'Less produced', threading.Event())
+            self.assertEqual(project, before)
+            self.assertEqual(client.generate.call_count, 2)
+
+    def test_locks_and_instrumental_output(self):
+        project = self.project(True)
+        track = project['tracks'][0]
+        track['locks'] = ['lyrics', 'style_prompt', 'exclusions']
+        self.assertEqual(missing_production(song(), track), [])
+        track['locks'] = []
+        output = song()
+        output['vocal_gender'] = 'instrumental'
+        for field, cues in production_requirements(track, instrumental=True).items():
+            output[field] += '\n' + '\n'.join(cues)
+        self.assertEqual(missing_production(output, track), [])
+        self.assertNotIn('intimate solo vocal', output['style_prompt'])
+
+    def test_latest_choices_in_collection_context(self):
+        project = self.project(True)
+        with tempfile.TemporaryDirectory() as directory:
+            store = Store(Path(directory) / 'test.sqlite3')
+            collection = make_collection('Album', songs=[project['tracks'][0]['id']])
+            project['tracks'][0]['production']['density'] = 'restrained'
+            store.save(project)
+            store.save_collection(collection)
+            context = store.generation_context(project, 0, collection['id'])
+            requirements = production_requirements(context['tracks'][0])
+            self.assertIn('restrained arrangement', requirements['style_prompt'])
+            self.assertNotIn('sparse arrangement', requirements['style_prompt'])
+
+
+class PerformanceFeelTests(unittest.TestCase):
+    def test_each_feel_reaches_initial_and_rewrite_checks(self):
+        from unittest.mock import Mock
+        for feel in ('human', 'live', 'polished'):
+            for existing in (False, True):
+                project = create_project('Test', 'Folk', 1, 180, 240, 3)
+                if existing:
+                    commit_version(project, 0, song(), 'initial')
+                track = project['tracks'][0]
+                track['production'] = {'feel': feel}
+                output = song('New phrasing')
+                for field, cues in production_requirements(track).items():
+                    output[field] += '\n' + '\n'.join(cues)
+                client = Mock()
+                client.generate.side_effect = [song(), output]
+                self.assertEqual(generate_song(client, 'local', project, 0, 'More natural',
+                                              threading.Event()), output)
+                self.assertEqual(client.generate.call_count, 2)
+
+    def test_old_choices_keep_style_feel(self):
+        direction = production_direction({'density': 'stripped'})
+        self.assertEqual(direction['feel'], 'style')
