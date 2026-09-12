@@ -6,18 +6,25 @@ import tomllib
 
 COLOUR_KEYS = ('background', 'surface', 'foreground', 'accent')
 LAYOUT_CSS = '''
-.title { font-size: 26px; font-weight: 700; }
-.heading { font-size: 16px; font-weight: 650; }
+window { font-family: monospace; font-size: 13px; }
+.title { font-size: 20px; font-weight: 700; }
+.heading { font-size: 14px; font-weight: 700; }
 .caption { opacity: 0.72; font-size: 12px; }
-.sidebar { padding: 14px; }
-.card { border-radius: 12px; padding: 16px; }
-button { padding: 7px 12px; border-radius: 8px; }
-entry { padding: 8px 12px; }
-.text-editor { border: 1px solid alpha(currentColor, 0.18); border-radius: 8px; }
-stackswitcher button { padding: 8px 20px; }
-.library-row { padding: 16px; border-radius: 10px; margin-bottom: 6px; }
-.editor-title { font-size: 22px; font-weight: 650; }
+headerbar { min-height: 40px; padding: 4px 12px; box-shadow: none; }
+.sidebar { padding: 12px; border-right: 1px solid alpha(currentColor, 0.15); }
+.card { border-radius: 0; padding: 12px; border: 1px solid alpha(currentColor, 0.12); }
+button { min-height: 24px; padding: 3px 10px; border-radius: 0; box-shadow: none; }
+entry, spinbutton { min-height: 28px; border-radius: 0; }
+entry { padding: 4px 8px; }
+spinbutton button { min-height: 24px; }
+.text-editor { border: 1px solid alpha(currentColor, 0.2); border-radius: 0; }
+stackswitcher button { padding: 4px 18px; }
+.library-row { padding: 12px; border-radius: 0; margin-bottom: 8px; }
+.editor-title { font-size: 18px; font-weight: 700; }
+popover > contents { border-radius: 0; }
+.status-footer { border-top: 1px solid alpha(currentColor, 0.15); padding: 8px 12px; }
 '''
+
 
 
 def valid_colour(value):
@@ -65,10 +72,17 @@ def colour_css(palette):
 @define-color accent_fg_color {on_accent};
 @define-color accent_color {accent};
 window, popover > contents {{ background-color: {bg}; color: {fg}; }}
-headerbar, .sidebar, .card, .library-row {{ background: {surface}; color: {fg}; }}
-button, dropdown > button {{ background: {surface}; color: {fg}; border-color: alpha({fg}, 0.18); }}
-button:hover {{ background: mix({surface}, {fg}, 0.12); }}
-button.suggested-action, list row:selected {{ background: {accent}; color: {on_accent}; }}
+headerbar, .sidebar {{ background: {bg}; color: {fg}; }}
+.card, .library-row {{ background: mix({bg}, {surface}, 0.55); color: {fg}; }}
+headerbar {{ border-bottom: 1px solid alpha({accent}, 0.6); }}
+window > box {{ border: 1px solid alpha({accent}, 0.55); }}
+button, dropdown > button {{ background: transparent; color: {fg}; border: 1px solid alpha({fg}, 0.35); }}
+button:hover {{ background: mix({bg}, {fg}, 0.08); border-color: {accent}; }}
+button:disabled {{ opacity: 0.45; }}
+button.suggested-action {{ background: alpha({accent}, 0.12); color: {accent}; border-color: {accent}; }}
+button.suggested-action:hover {{ background: alpha({accent}, 0.22); }}
+stackswitcher button:checked, list row:selected {{ background: alpha({accent}, 0.14); color: {accent}; }}
+button:focus-visible, entry:focus-within, .text-editor:focus-within {{ outline: 1px solid {accent}; outline-offset: -1px; }}
 entry, textview, textview text {{ background: {bg}; color: {fg}; caret-color: {accent}; }}
 list, scrolledwindow {{ background-color: transparent; }}
 separator {{ background: alpha({fg}, 0.15); }}
