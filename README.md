@@ -66,11 +66,13 @@ Use **Open Suno** in the top bar to open Suno’s creation page in your default 
 
 ## Control production and delivery
 
-In **New song → Production direction**, choose production density, dynamics and vocal delivery, then add specific arrangement notes. New songs default to **Restrained** production; other controls follow your style until you choose otherwise. Existing songs keep their original direction until you change it.
+In **New song → Production direction**, choose production density, dynamics, vocal delivery and performance feel, then add specific arrangement notes. New songs default to **Restrained** production; other controls follow your style until you choose otherwise. Existing songs keep their original direction until you change it.
+
+**Performance feel** offers **Natural and understated** (subtle timing variation and unforced phrasing), **Live-room performance** (responsive ensemble timing and minimal editing), or **Tight and polished**. Follow style leaves this choice open. These provide concrete delivery cues and exclusions; they cannot guarantee that Suno sounds human or remove every synthetic artefact.
 
 Use the **Production** button on any song to adjust its next draft or rewrite. For a sparse result, try **Stripped back**, **Steady and contained**, and **Intimate solo**, with notes such as “Fingerpicked guitar and one dry lead voice; leave silence between phrases.”
 
-The writing model receives these choices for the style prompt, bracketed performance cues in the lyrics, and relevant exclusions. Saving direction does not change existing lyrics: generate a draft or use Review to request a rewrite. Locked fields and rewrite limits still apply. Suno may interpret the instructions differently; this is creative direction, not direct control of its audio engine.
+For both new drafts and rewrites (including collection updates), Versework supplies explicit production phrases for the style prompt, bracketed performance cues for the lyrics, and relevant exclusions. It checks that the model includes them in unlocked fields and retries once if they are missing. A second omission leaves your draft and rewrite allowance unchanged. Freeform arrangement notes are also sent as creative direction; their meaning is not automatically verified. Saving direction does not change existing lyrics: generate a draft or use Review to request a rewrite. Locked fields and rewrite limits still apply. Suno may interpret the instructions differently; this is creative direction, not direct control of its audio engine.
 
 ## Optional collections, albums and EPs
 

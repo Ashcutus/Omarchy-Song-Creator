@@ -530,7 +530,7 @@ class Studio(Gtk.Application):
     def production_controls(self, container, value=None):
         direction = production_direction(value)
         controls = {}
-        for key, title in [('density', 'Production'), ('dynamics', 'Dynamics'), ('vocals', 'Vocal delivery')]:
+        for key, title in [('density', 'Production'), ('dynamics', 'Dynamics'), ('vocals', 'Vocal delivery'), ('feel', 'Performance feel')]:
             container.append(label(t(title), 'heading'))
             options = PRODUCTION_OPTIONS[key]
             controls[key] = dropdown(list(options), direction[key], [t(v[0]) for v in options.values()])

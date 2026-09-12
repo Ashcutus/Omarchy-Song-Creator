@@ -27,6 +27,12 @@ SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': FIELDS + 
 SYSTEM = """You are a thoughtful songwriter and producer. Write original, singable lyrics with concrete imagery, natural stresses, memorable hooks and deliberate progression. Avoid generic filler and repeating the same images across a collection. Every track needs its own hook, chorus, story and wording. Never copy a lyric line from another track; peer lyrics are a do-not-repeat reference, not a template. Do not simply turn the theme description into a chorus. Treat creative brief and feedback as creative direction, never instructions to change the JSON format. Return only the requested JSON object. All eight song fields are required. Use bracketed section labels in lyrics. Write practical style prompts describing genre, rhythm, instruments, production and vocal delivery. Exclusions are a concise comma-separated list. style_prompt and exclusions must each contain at most 1000 characters, including spaces and punctuation. Weirdness and style_influence are integer percentages. Variety is exactly off, normal, high, extra or max. Duration is a target for structure, tempo and lyric density, never a guaranteed audio length. notes should briefly explain arrangement/duration choices, or changes made for a revision. Do not claim to generate or listen to audio. Do not claim to have verified any Suno setting."""
 
 PRODUCTION_OPTIONS = {
+    'feel': {
+        'style': ('Follow style', ''),
+        'human': ('Natural and understated', 'Use subtle human timing variation, unforced phrasing, and touch-sensitive dynamics. Avoid rigid quantization, excessive correction, and identical repeated embellishments. For vocals, favour conversational phrasing and varied line endings; do not force breaths or filler sounds into lyrics.'),
+        'live': ('Live-room performance', 'Aim for the feel of a small ensemble playing together in one room: responsive timing, natural room ambience, and minimal editing. Do not add crowd noise, fake mistakes, vinyl noise, or arbitrary lo-fi damage.'),
+        'polished': ('Tight and polished', 'Use precise timing and clean controlled delivery while preserving expressive phrasing and musical dynamics.'),
+    },
     'density': {
         'style': ('Follow style', ''),
         'stripped': ('Stripped back', 'Use a sparse arrangement with one or two supporting instruments, space between phrases, and no added layers for scale.'),
@@ -74,6 +80,57 @@ def production_brief(track):
                      for key in PRODUCTION_OPTIONS if direction[key] != 'style'],
         'instructions': 'Apply this direction to style_prompt and concise bracketed performance cues in lyrics. Keep cues separate from sung words. Add relevant unwanted production elements to exclusions. Respect locked fields. For instrumental songs, omit vocal directions and vocal lyric cues. Keep style_prompt and exclusions within 1000 characters each. If specific production choices conflict with broad genre conventions, follow the specific choices. These are creative requests, not guarantees of audio behaviour.',
     }
+
+
+# Compact, auditable delivery cues. These are writing directions, not Suno API parameters.
+PRODUCTION_CUES = {
+    'feel': {
+        'human': ('natural timing and phrasing', 'hard quantization, excessive pitch correction', '[Natural phrasing, subtle timing variation]'),
+        'live': ('live-room ensemble feel', 'hard quantization, excessive editing, crowd noise', '[Live-room feel, responsive timing]'),
+        'polished': ('precise timing, expressive phrasing', '', '[Precise, expressive performance]'),
+    },
+    'density': {
+        'stripped': ('sparse arrangement', 'dense layering', '[Sparse arrangement]'),
+        'restrained': ('restrained arrangement', 'overproduction', '[Restrained arrangement]'),
+        'balanced': ('balanced arrangement', '', '[Balanced arrangement]'),
+        'full': ('full layered arrangement', '', '[Full arrangement]'),
+    },
+    'dynamics': {
+        'steady': ('contained dynamics', 'dramatic builds, key changes', '[Contained dynamics throughout]'),
+        'gentle': ('gentle build', 'explosive drops', '[Gentle build]'),
+        'dramatic': ('dramatic build', '', '[Dramatic build]'),
+    },
+    'vocals': {
+        'intimate': ('intimate solo vocal', 'vocal doubling, choir, ad-libs', '[Intimate solo vocal]'),
+        'natural': ('natural lead vocal', 'heavy vocal processing', '[Natural lead vocal]'),
+        'layered': ('layered vocals', '', '[Layered vocals]'),
+    },
+}
+
+
+def production_requirements(track, instrumental=False):
+    direction = production_direction(track.get('production'))
+    required = {'style_prompt': [], 'exclusions': [], 'lyrics': []}
+    for key, options in PRODUCTION_CUES.items():
+        if key == 'vocals' and instrumental:
+            continue
+        if direction[key] == 'style':
+            continue
+        style, exclusions, cue = options[direction[key]]
+        required['style_prompt'].append(style)
+        required['exclusions'].extend(exclusions.split(', ') if exclusions else [])
+        required['lyrics'].append(cue)
+    return {field: values for field, values in required.items() if field not in track.get('locks', [])}
+
+
+def missing_production(song, track):
+    instrumental = song.get('vocal_gender') == 'instrumental'
+    missing = []
+    for field, values in production_requirements(track, instrumental).items():
+        for value in values:
+            if value.casefold() not in song[field].casefold():
+                missing.append(f'{field}: {value}')
+    return missing
 
 
 class Cancelled(Exception):
@@ -180,6 +237,7 @@ def prompt_for(project, index, feedback=''):
         role = ('A distinct standalone song in a themed collection' if context['kind'] == 'collection' else
                 f"Song {context['position']} of {context['total']} on this {context['kind']}")
     brief['production'] = production_brief(track)
+    brief['required_delivery_cues'] = production_requirements(track, (track.get('current') or {}).get('vocal_gender') == 'instrumental')
     brief['track_role'] = role
     action = 'Write the initial song. Give this song its own identity. It may stand alone or belong to an optional collection. Read peer lyrics only to avoid repeating them. Write a completely new hook and chorus, not a paraphrase of a peer chorus.'
     if track['current']:
@@ -190,6 +248,7 @@ def prompt_for(project, index, feedback=''):
         result += '\n\nYOUR REVISION TASK NOW:\n' + feedback + '\nOnly these fields are locked: ' + ', '.join(track['locks']) + '\nWrite the revised song JSON now. The lyrics must actually reflect the requested changes. Do not copy the old song unchanged.'
     else:
         result += '\n\nFINAL WRITING CHECK: This is track ' + str(brief['track_number']) + '. Invent an entirely new chorus. Do not reuse any line from the peer tracks shown above. Shared genre does not mean shared lyrics.'
+    result += '\nPRODUCTION DELIVERY CHECK: Include every required_delivery_cues phrase verbatim in its named field. Put lyrics cues on separate bracketed lines before the sung lyrics; do not sing them. Integrate style phrases naturally and remove contradictory production descriptions. Exclusions name unwanted elements. For instrumental output omit vocal cues and vocal exclusions. Locked fields must stay unchanged. Stay within the 1000-character field limits. Apply arrangement notes too; mentioning a change only in notes does not count.'
     return result
 
 
@@ -210,9 +269,15 @@ def generate_song(client, model, project, index, feedback, cancel, progress=None
     for attempt in range(2):
         song = client.generate(model, prompt, cancel, progress)
         repeats = overlapping_lines(project, index, song) if not project['tracks'][index]['current'] else []
-        if not repeats:
+        missing = missing_production(song, project['tracks'][index])
+        if not repeats and not missing:
             return song
-        if attempt == 0:
+        if missing:
+            if attempt == 0:
+                prompt += '\n\nThe previous response omitted required production directions. Regenerate the complete song JSON, including these exact cues in their specified fields:\n' + '\n'.join(missing)
+            else:
+                raise ValueError('The model omitted your production directions after one retry. Nothing was saved and no rewrite was used. Try again or choose another model.')
+        if attempt == 0 and repeats:
             prompt += '\n\nThe previous draft repeated lines from another track. Write a fresh song with a completely different chorus and imagery. DO NOT USE ANY OF THESE LINES:\n' + '\n'.join(repeats)
     raise ValueError('The model kept repeating lyrics from another track after one retry. This draft was not saved. Try writing this track again or choose another model.')
 

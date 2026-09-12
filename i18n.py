@@ -4,6 +4,10 @@ import os
 LANGUAGES = [('system', 'System language'), ('en', 'English'), ('de', 'Deutsch'), ('es', 'Español'), ('fr', 'Français')]
 # English | German | Spanish | French. Keep format placeholders identical.
 _ROWS = '''
+Performance feel|Spielgefühl|Carácter de la interpretación|Caractère de l’interprétation
+Natural and understated|Natürlich und zurückhaltend|Natural y contenida|Naturelle et sobre
+Live-room performance|Live im Raum|Interpretación en directo|Interprétation en salle
+Tight and polished|Präzise und ausgefeilt|Precisa y pulida|Précise et soignée
 App updates|App-Updates|Actualizaciones de la aplicación|Mises à jour de l’application
 Check GitHub for the latest version of Versework.|Suche auf GitHub nach der neuesten Version von Versework.|Busca la última versión de Versework en GitHub.|Recherchez la dernière version de Versework sur GitHub.
 Check for updates|Nach Updates suchen|Buscar actualizaciones|Rechercher des mises à jour
