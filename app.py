@@ -209,7 +209,8 @@ class Studio(Gtk.Application):
         self.content = box()
         self.content.set_hexpand(True)
         body.append(self.content)
-        footer = margins(box(False), 10)
+        footer = box(False)
+        footer.add_css_class('status-footer')
         self.spinner = Gtk.Spinner()
         footer.append(self.spinner)
         self.status = label(t('Saved on this computer'), 'caption')
@@ -274,7 +275,7 @@ class Studio(Gtk.Application):
 
     def render_library(self):
         self.clear(self.content)
-        outer = margins(box(spacing=24), 24)
+        outer = margins(box(spacing=20), 20)
         self.content.append(outer)
         coll = self.current_collection()
         head = box(False)
@@ -349,7 +350,7 @@ class Studio(Gtk.Application):
     def render_project(self):
         self.editors, self.lockers, self.feedback_editor = {}, {}, None
         self.clear(self.content)
-        outer = margins(box(spacing=16), 24)
+        outer = margins(box(spacing=12), 20)
         outer.set_vexpand(True)
         self.content.append(outer)
         p, i = self.project, self.track_index or 0
@@ -395,7 +396,7 @@ class Studio(Gtk.Application):
         self.editor_stack.set_vexpand(True)
         pages = {}
         for name in ['Lyrics', 'Sound', 'Review']:
-            page = box(spacing=24)
+            page = box(spacing=18)
             page.set_margin_top(8)
             page.set_margin_end(8)
             page.set_margin_bottom(8)
@@ -517,10 +518,10 @@ class Studio(Gtk.Application):
         controller.connect('key-pressed', key)
         window.add_controller(controller)
         window.escape_controller = controller
-        child = margins(box(spacing=16), 24)
+        child = margins(box(spacing=14), 16)
         root = box(spacing=0)
         root.append(scrolled(child))
-        window.actions = margins(box(False), 24)
+        window.actions = margins(box(False), 16)
         window.actions.set_visible(False)
         root.append(window.actions)
         window.set_child(root)

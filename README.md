@@ -88,7 +88,7 @@ Earlier multi-song projects are automatically represented as collections on firs
 
 ### Theme and colours
 
-The default is **Follow Omarchy theme**. Versework reads the active Omarchy palette at `~/.local/state/omarchy/current/theme/colors.toml` (with the older `~/.config/omarchy/current/theme` location as a fallback) and follows changes automatically. It leaves the desktop's fonts, GTK settings and global configuration untouched. If no Omarchy palette is available, GTK supplies the native colours; the app does not force dark mode.
+The default is **Follow Omarchy theme**. Versework reads the active Omarchy palette at `~/.local/state/omarchy/current/theme/colors.toml` (with the older `~/.config/omarchy/current/theme` location as a fallback) and follows changes automatically. The interface uses Omarchy’s configured monospace font, compact square controls, thin accent borders, and subdued panels. It leaves desktop settings and global configuration untouched. If no Omarchy palette is available, GTK supplies the native colours; the app does not force dark mode.
 
 Choose **Custom colours** to change Versework's background, surfaces, text and accent using colour pickers or six-digit hex values. **Restore theme colours**, then **Apply**, returns to automatic theme following. These preferences affect Versework only.
 
