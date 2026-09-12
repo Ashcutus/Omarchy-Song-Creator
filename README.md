@@ -46,6 +46,7 @@ To run directly from the repository:
 - **New song** starts with one song by default. Enter its working title, style, optional theme, lyric language, target duration range and rewrite limit. You can request several song ideas at once.
 - The **Songs** library shows all your songs, including unfinished drafts, and searches titles, styles and themes.
 - Each song has **Lyrics**, **Sound** and **Review** tabs. All eight fields are editable and individually copyable: title, lyrics, style prompt, exclusions, vocal gender, weirdness %, style influence %, and variety (`off`, `normal`, `high`, `extra`, `max`).
+- **Style prompt** and **Exclusions** each allow up to **1,000 characters**, including spaces and punctuation. Their editors show a live count and reject typing or pasting beyond the limit. This also applies to the initial style brief and AI output. Existing longer saved text is preserved for shortening; it is never silently truncated.
 - Write a draft, give feedback, lock fields you want preserved exactly, and approve it when ready. Version history preserves earlier drafts and manual edits.
 - Generate audio manually in Suno, then bring your listening notes back into **Review**. Target duration guides the writing; Suno determines the audio length.
 

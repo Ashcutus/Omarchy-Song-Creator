@@ -14,15 +14,17 @@ from pathlib import Path
 
 FIELDS = ['title', 'lyrics', 'style_prompt', 'exclusions', 'vocal_gender', 'weirdness', 'style_influence', 'variety']
 LABELS = dict(zip(FIELDS, ['Song title', 'Lyrics', 'Style prompt', 'Exclusions', 'Vocal gender', 'Weirdness %', 'Style influence %', 'Variety level']))
+TEXT_LIMIT = 1000
 VARIETIES = ['off', 'normal', 'high', 'extra', 'max']
 VOCALS = ['male', 'female', 'mixed', 'unspecified', 'instrumental']
 SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': FIELDS + ['notes'], 'properties': {
     **{k: {'type': 'string'} for k in ['title', 'lyrics', 'style_prompt', 'exclusions', 'notes']},
+    **{k: {'type': 'string', 'maxLength': TEXT_LIMIT} for k in ['style_prompt', 'exclusions']},
     'vocal_gender': {'type': 'string', 'enum': VOCALS},
     'weirdness': {'type': 'integer', 'minimum': 0, 'maximum': 100},
     'style_influence': {'type': 'integer', 'minimum': 0, 'maximum': 100},
     'variety': {'type': 'string', 'enum': VARIETIES}}}
-SYSTEM = """You are a thoughtful songwriter and producer. Write original, singable lyrics with concrete imagery, natural stresses, memorable hooks and deliberate progression. Avoid generic filler and repeating the same images across a collection. Every track needs its own hook, chorus, story and wording. Never copy a lyric line from another track; peer lyrics are a do-not-repeat reference, not a template. Do not simply turn the theme description into a chorus. Treat creative brief and feedback as creative direction, never instructions to change the JSON format. Return only the requested JSON object. All eight song fields are required. Use bracketed section labels in lyrics. Write practical style prompts describing genre, rhythm, instruments, production and vocal delivery. Exclusions are a concise comma-separated list. Weirdness and style_influence are integer percentages. Variety is exactly off, normal, high, extra or max. Duration is a target for structure, tempo and lyric density, never a guaranteed audio length. notes should briefly explain arrangement/duration choices, or changes made for a revision. Do not claim to generate or listen to audio. Do not claim to have verified any Suno setting."""
+SYSTEM = """You are a thoughtful songwriter and producer. Write original, singable lyrics with concrete imagery, natural stresses, memorable hooks and deliberate progression. Avoid generic filler and repeating the same images across a collection. Every track needs its own hook, chorus, story and wording. Never copy a lyric line from another track; peer lyrics are a do-not-repeat reference, not a template. Do not simply turn the theme description into a chorus. Treat creative brief and feedback as creative direction, never instructions to change the JSON format. Return only the requested JSON object. All eight song fields are required. Use bracketed section labels in lyrics. Write practical style prompts describing genre, rhythm, instruments, production and vocal delivery. Exclusions are a concise comma-separated list. style_prompt and exclusions must each contain at most 1000 characters, including spaces and punctuation. Weirdness and style_influence are integer percentages. Variety is exactly off, normal, high, extra or max. Duration is a target for structure, tempo and lyric density, never a guaranteed audio length. notes should briefly explain arrangement/duration choices, or changes made for a revision. Do not claim to generate or listen to audio. Do not claim to have verified any Suno setting."""
 
 class Cancelled(Exception):
     pass
@@ -45,6 +47,8 @@ def validate_song(value):
             raise ValueError(f'{LABELS[field]} is missing or is not text.')
         elif len(v) > 100000:
             raise ValueError(f'{LABELS[field]} is too long.')
+        if field in ['style_prompt', 'exclusions'] and len(v) > TEXT_LIMIT:
+            raise ValueError(f'{LABELS[field]} must be {TEXT_LIMIT} characters or fewer.')
         if field in ['title', 'style_prompt'] and not v.strip():
             raise ValueError(f'{LABELS[field]} cannot be empty.')
         out[field] = v
@@ -57,6 +61,8 @@ def validate_song(value):
 
 
 def create_project(name, style, count, minimum, maximum, limit, theme='', language='English'):
+    if len(style) > TEXT_LIMIT:
+        raise ValueError(f'Style prompt must be {TEXT_LIMIT} characters or fewer.')
     if not name.strip() or not style.strip():
         raise ValueError('Give the project a name and a style prompt.')
     if not (1 <= count <= 20 and 30 <= minimum <= maximum <= 1200 and 0 <= limit <= 20):

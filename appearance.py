@@ -12,8 +12,9 @@ LAYOUT_CSS = '''
 .sidebar { padding: 14px; }
 .card { border-radius: 12px; padding: 16px; }
 button { padding: 7px 12px; border-radius: 8px; }
-entry { padding: 6px; }
-textview { padding: 12px; }
+entry { padding: 8px 12px; }
+.text-editor { border: 1px solid alpha(currentColor, 0.18); border-radius: 8px; }
+stackswitcher button { padding: 8px 20px; }
 .library-row { padding: 16px; border-radius: 10px; margin-bottom: 6px; }
 .editor-title { font-size: 22px; font-weight: 650; }
 '''
