@@ -14,7 +14,7 @@ gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk, Gio, GLib
 from core import (FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
-                  commit_version, restore_version, prompt_for, track_status, song_text, export_text)
+                  commit_version, restore_version, prompt_for, generate_song, track_status, song_text, export_text)
 
 APP_ID = 'io.versework.Studio'
 DATA = Path(os.environ.get('VERSEWORK_DATA', str(Path.home() / '.local/share/versework/data')))
@@ -571,7 +571,7 @@ class Studio(Gtk.Application):
                         if time.monotonic() - last_update[0] > 1:
                             last_update[0] = time.monotonic()
                             GLib.idle_add(self.notify, f'Writing track {index + 1}/{snap["count"]} · {size:,} characters received…')
-                    data = self.ollama.generate(model, prompt_for(snap, index, feedback), self.cancel_event, progress)
+                    data = generate_song(self.ollama, model, snap, index, feedback, self.cancel_event, progress)
                     GLib.idle_add(accept, index, kind, data)
                 except Cancelled:
                     GLib.idle_add(self.finish, 'Writing stopped. Completed drafts are saved.')

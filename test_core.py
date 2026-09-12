@@ -55,6 +55,15 @@ class RevisionTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             commit_version(self.p, 0, bad, 'rewrite')
         self.assertEqual(previous, self.p)
+    def test_no_op_revision_does_not_use_allowance(self):
+        commit_version(self.p, 0, song(), 'initial')
+        revised = song()
+        revised['notes'] = 'Changed the chorus'
+        with self.assertRaisesRegex(ValueError, 'did not change'):
+            commit_version(self.p, 0, revised, 'rewrite')
+        self.assertEqual(self.p['tracks'][0]['rewrites'], 0)
+        self.assertEqual(len(self.p['tracks'][0]['versions']), 1)
+
     def test_zero_rewrites_can_still_approve(self):
         self.p['limit'] = 0
         commit_version(self.p, 0, song(), 'initial')
@@ -77,7 +86,7 @@ class RevisionTests(unittest.TestCase):
         commit_version(self.p, 1, song('Neighbour'), 'initial')
         self.p['tracks'][0]['locks'] = ['lyrics']
         prompt = prompt_for(self.p, 0, 'More hopeful')
-        for text in ['Neighbour', 'More hopeful', 'locked_fields', 'target_seconds', '180']:
+        for text in ['Neighbour', 'More hopeful', 'locked_fields', 'target_seconds', '180', 'track_role', 'do_not_repeat_these_lyrics']:
             self.assertIn(text, prompt)
     def test_export_labels_approval_honestly(self):
         commit_version(self.p, 0, song(), 'initial')
@@ -86,6 +95,32 @@ class RevisionTests(unittest.TestCase):
         self.assertIn('Not drafted', result)
         for field in LABELS.values():
             self.assertIn(field, result)
+    def test_duplicate_draft_gets_one_retry(self):
+        commit_version(self.p, 0, song(), 'initial')
+        unique = song('A new song')
+        unique['lyrics'] = 'I count the windows on the hill\nYour boots are drying by the door'
+        class Fake:
+            calls = 0
+            def generate(inner, *args):
+                inner.calls += 1
+                return song() if inner.calls == 1 else unique
+        fake = Fake()
+        self.assertEqual(generate_song(fake, 'test', self.p, 1, '', threading.Event()), unique)
+        self.assertEqual(fake.calls, 2)
+
+    def test_repeated_duplicate_draft_is_rejected(self):
+        commit_version(self.p, 0, song(), 'initial')
+        class Fake:
+            calls = 0
+            def generate(inner, *args):
+                inner.calls += 1
+                return song()
+        fake = Fake()
+        with self.assertRaisesRegex(ValueError, 'repeating lyrics'):
+            generate_song(fake, 'test', self.p, 1, '', threading.Event())
+        self.assertEqual(fake.calls, 2)
+        self.assertIsNone(self.p['tracks'][1]['current'])
+
     def test_invalid_brief(self):
         with self.assertRaises(ValueError):
             create_project('EP', 'Folk', 4, 300, 180, 3)

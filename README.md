@@ -47,11 +47,12 @@ Target duration guides lyrics and arrangement; it does not guarantee the duratio
 ### Revision rules
 
 - An initial draft does **not** use a rewrite.
-- Only a successfully validated and saved AI revision increments the per-song counter.
+- Only a successfully validated and saved AI revision increments the per-song counter. Unchanged output (including a change to notes only) is rejected without using a rewrite.
 - Manual edits and restoring a previous version do not use a rewrite, and never reset the counter.
 - Approved songs cannot be edited, rewritten or restored until explicitly reopened.
 - At the rewrite limit, a song remains **Limit reached · review needed** until the user approves it. It is not automatically marked finished.
 - Field locks are enforced by the app, not merely requested in the prompt.
+- New drafts are checked for repeated lines from peer songs. Two or more repeated substantial lines trigger one automatic retry; a second duplicate result is rejected without saving. This is a basic exact-line check, not a guarantee of originality.
 - Completed songs are saved as an EP is generated. A failed later song does not discard earlier work; use **Write remaining drafts** to resume.
 - Stop writing cancels at the next streamed response from Ollama; an initial model load may delay cancellation. Closing the app preserves previously saved drafts.
 
@@ -77,7 +78,7 @@ python -m py_compile app.py core.py
 bash -n install.sh launch.sh setup-ollama.sh
 ```
 
-Tests cover revision limits, approval protection, field locks, restoration, restart persistence, prompt context, exports, local model filtering and streamed response validation/cancellation. A GUI smoke fixture can be run on a display using an isolated data directory:
+The 17 tests cover revision limits, approval protection, field locks, unchanged revisions, duplicate-draft retry/rejection, restoration, restart persistence, prompt context, exports, local model filtering and streamed response validation/cancellation. A GUI smoke fixture can be run on a display using an isolated data directory:
 
 ```bash
 VERSEWORK_DATA=/tmp/versework-smoke ./launch.sh --smoke

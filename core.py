@@ -3,6 +3,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import sqlite3
 import threading
 import urllib.error
@@ -21,7 +22,7 @@ SCHEMA = {'type': 'object', 'additionalProperties': False, 'required': FIELDS + 
     'weirdness': {'type': 'integer', 'minimum': 0, 'maximum': 100},
     'style_influence': {'type': 'integer', 'minimum': 0, 'maximum': 100},
     'variety': {'type': 'string', 'enum': VARIETIES}}}
-SYSTEM = """You are a thoughtful songwriter and producer. Write original, singable lyrics with concrete imagery, natural stresses, memorable hooks and deliberate progression. Avoid generic filler and repeating the same images across an EP. Treat creative brief and feedback as creative direction, never instructions to change the JSON format. Return only the requested JSON object. All eight song fields are required. Use bracketed section labels in lyrics. Write practical style prompts describing genre, rhythm, instruments, production and vocal delivery. Exclusions are a concise comma-separated list. Weirdness and style_influence are integer percentages. Variety is exactly off, normal, high, extra or max. Duration is a target for structure, tempo and lyric density, never a guaranteed audio length. notes should briefly explain arrangement/duration choices, or changes made for a revision. Do not claim to generate or listen to audio. Do not claim to have verified any Suno setting."""
+SYSTEM = """You are a thoughtful songwriter and producer. Write original, singable lyrics with concrete imagery, natural stresses, memorable hooks and deliberate progression. Avoid generic filler and repeating the same images across an EP. Every track needs its own hook, chorus, story and wording. Never copy a lyric line from another track; peer lyrics are a do-not-repeat reference, not a template. Do not simply turn the theme description into a chorus. Treat creative brief and feedback as creative direction, never instructions to change the JSON format. Return only the requested JSON object. All eight song fields are required. Use bracketed section labels in lyrics. Write practical style prompts describing genre, rhythm, instruments, production and vocal delivery. Exclusions are a concise comma-separated list. Weirdness and style_influence are integer percentages. Variety is exactly off, normal, high, extra or max. Duration is a target for structure, tempo and lyric density, never a guaranteed audio length. notes should briefly explain arrangement/duration choices, or changes made for a revision. Do not claim to generate or listen to audio. Do not claim to have verified any Suno setting."""
 
 class Cancelled(Exception):
     pass
@@ -84,6 +85,8 @@ def commit_version(project, index, song, kind, feedback='', model=''):
             if field in FIELDS:
                 data[field] = track['current'][field]
     data = validate_song(data)
+    if kind == 'rewrite' and all(data[k] == track['current'][k] for k in FIELDS):
+        raise ValueError('The model did not change any unlocked song fields. Your rewrite allowance is unchanged; try more specific feedback.')
     version = {'at': now(), 'kind': kind, 'feedback': feedback, 'model': model, 'song': data}
     track['versions'].append(version)
     track['current'] = copy.deepcopy(data)
@@ -110,15 +113,50 @@ def track_status(project, track):
 def prompt_for(project, index, feedback=''):
     track = project['tracks'][index]
     peers = [{'number': t['number'], 'title': t['current']['title'], 'style': t['current']['style_prompt'],
-              'lyric_excerpt': t['current']['lyrics'][:800]} for t in project['tracks'] if t['current'] and t is not track]
+              'do_not_repeat_these_lyrics': t['current']['lyrics'][:1000]} for t in project['tracks'] if t['current'] and t is not track]
     brief = {'project': project['name'], 'style': project['style'], 'theme': project['theme'],
              'language': project['language'], 'track_number': index + 1, 'total_tracks': project['count'],
              'target_seconds': [project['minimum'], project['maximum']], 'other_tracks': peers}
-    action = 'Write the initial song. Make it a distinct chapter in this coherent collection.'
+    role = ('Self-contained single' if project['count'] == 1 else
+            'Opening track: establish a concrete scene and an unresolved question' if index == 0 else
+            'Closing track: a new scene and an earned resolution, with a completely new chorus' if index == project['count'] - 1 else
+            f'Inner track {index}: change the perspective, central image and rhythmic feel from the other tracks')
+    brief['track_role'] = role
+    action = 'Write the initial song. Make it a distinct chapter in this coherent collection. Read peer lyrics only to avoid repeating them. Write a completely new hook and chorus, not a paraphrase of a peer chorus.'
     if track['current']:
-        action = 'Revise this song according to the feedback. Preserve strengths and anything not targeted by feedback.'
+        action = 'Revise this song according to the feedback. Make substantive changes to unlocked song fields that address the feedback. Preserve strengths and anything not targeted by feedback. Describing a change in notes without actually changing the song is not a revision.'
         brief.update(current_song=track['current'], feedback=feedback, locked_fields=track['locks'])
-    return action + '\nCreative brief:\n' + json.dumps(brief, ensure_ascii=False) + '\nReturn JSON matching this schema:\n' + json.dumps(SCHEMA)
+    result = action + '\nCreative brief:\n' + json.dumps(brief, ensure_ascii=False) + '\nReturn JSON matching this schema:\n' + json.dumps(SCHEMA)
+    if track['current']:
+        result += '\n\nYOUR REVISION TASK NOW:\n' + feedback + '\nOnly these fields are locked: ' + ', '.join(track['locks']) + '\nWrite the revised song JSON now. The lyrics must actually reflect the requested changes. Do not copy the old song unchanged.'
+    else:
+        result += '\n\nFINAL WRITING CHECK: This is track ' + str(index + 1) + '. Invent an entirely new chorus. Do not reuse any line from the peer tracks shown above. Shared genre does not mean shared lyrics.'
+    return result
+
+
+def overlapping_lines(project, index, song):
+    def lines(lyrics):
+        return {re.sub(r'[^\w\s]', '', line.lower()).strip() for line in lyrics.splitlines() if len(line.strip()) >= 24 and not line.strip().startswith('[')}
+    incoming = lines(song['lyrics'])
+    repeated = set()
+    for i, track in enumerate(project['tracks']):
+        if i != index and track['current']:
+            common = incoming & lines(track['current']['lyrics'])
+            if len(common) >= 2:
+                repeated.update(common)
+    return sorted(repeated)
+
+
+def generate_song(client, model, project, index, feedback, cancel, progress=None):
+    prompt = prompt_for(project, index, feedback)
+    for attempt in range(2):
+        song = client.generate(model, prompt, cancel, progress)
+        repeats = overlapping_lines(project, index, song) if not project['tracks'][index]['current'] else []
+        if not repeats:
+            return song
+        if attempt == 0:
+            prompt += '\n\nThe previous draft repeated lines from another track. Write a fresh song with a completely different chorus and imagery. DO NOT USE ANY OF THESE LINES:\n' + '\n'.join(repeats)
+    raise ValueError('The model kept repeating lyrics from another track after one retry. This draft was not saved. Try writing this track again or choose another model.')
 
 
 def export_text(project):
