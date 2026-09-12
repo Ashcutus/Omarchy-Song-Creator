@@ -1,0 +1,10 @@
+{
+  "schemaVersion": 1,
+  "id": "versework.launcher",
+  "name": "Versework",
+  "version": "1.0.0",
+  "description": "Open the Versework song creator",
+  "kinds": ["bar-widget"],
+  "entryPoints": {"barWidget": "BarWidget.qml"},
+  "barWidget": {"defaultSection": "left", "allowMultiple": false}
+}
