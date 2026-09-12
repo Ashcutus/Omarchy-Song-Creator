@@ -5,8 +5,8 @@ A native GTK 4 app for writing **songs** with a local Ollama model. Develop a so
 ## Install on Omarchy
 
 ```bash
-git clone https://github.com/Ashcutus/Omarchy-Song-Creator.git &&
-cd Omarchy-Song-Creator &&
+git clone https://github.com/Ashcutus/Omarchy-Versework.git &&
+cd Omarchy-Versework &&
 ./install.sh &&
 ./setup-ollama.sh
 ```
