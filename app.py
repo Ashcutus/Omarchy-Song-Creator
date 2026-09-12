@@ -13,7 +13,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk, Gio, GLib
-from core import (FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
+from core import (TEXT_LIMIT, FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
                   make_collection, commit_version, restore_version, generate_song, track_status, song_text)
 from appearance import COLOUR_KEYS, LAYOUT_CSS, read_palette, colour_css, resolved_palette, valid_colour
 from i18n import LANGUAGES, set_language, system_language, t
@@ -22,7 +22,7 @@ APP_ID = 'io.versework.Studio'
 DATA = Path(os.environ.get('VERSEWORK_DATA', str(Path.home() / '.local/share/versework/data')))
 
 
-def box(vertical=True, spacing=10):
+def box(vertical=True, spacing=12):
     return Gtk.Box(orientation=Gtk.Orientation.VERTICAL if vertical else Gtk.Orientation.HORIZONTAL, spacing=spacing)
 
 
@@ -30,6 +30,9 @@ def label(text, css=None):
     w = Gtk.Label(label=text, xalign=0, wrap=True)
     if css:
         w.add_css_class(css)
+    if css == 'error':
+        w.set_visible(bool(text))
+        w.connect('notify::label', lambda *_: w.set_visible(bool(w.get_label())))
     return w
 
 
@@ -58,8 +61,38 @@ def scrolled(child, height=None):
 
 def text_input(text='', height=120):
     w = Gtk.TextView(wrap_mode=Gtk.WrapMode.WORD_CHAR)
+    w.set_left_margin(12)
+    w.set_right_margin(12)
+    w.set_top_margin(12)
+    w.set_bottom_margin(12)
+    w.set_pixels_above_lines(2)
+    w.set_pixels_below_lines(2)
     w.get_buffer().set_text(text)
-    return w, scrolled(w, height)
+    wrap = scrolled(w, height)
+    wrap.add_css_class('text-editor')
+    return w, wrap
+
+
+def limit_text(widget, container):
+    """Reject over-limit insertions, while preserving existing text for correction."""
+    buffer = widget.get_buffer()
+    counter = label('', 'caption')
+    counter.set_halign(Gtk.Align.END)
+    container.append(counter)
+    def update(*_):
+        count = buffer.get_char_count()
+        counter.set_text(f'{count} / {TEXT_LIMIT}')
+        if count > TEXT_LIMIT:
+            counter.add_css_class('error')
+        else:
+            counter.remove_css_class('error')
+    def inserting(buf, location, text, length):
+        if buf.get_char_count() + len(text) > TEXT_LIMIT:
+            buf.stop_emission_by_name('insert-text')
+            widget.error_bell()
+    buffer.connect('insert-text', inserting)
+    buffer.connect('changed', update)
+    update()
 
 
 def dropdown(values, selected=None, captions=None):
@@ -234,7 +267,7 @@ class Studio(Gtk.Application):
 
     def render_library(self):
         self.clear(self.content)
-        outer = margins(box(spacing=18), 28)
+        outer = margins(box(spacing=24), 24)
         self.content.append(outer)
         coll = self.current_collection()
         head = box(False)
@@ -282,9 +315,11 @@ class Studio(Gtk.Application):
         listing.connect('row-activated', lambda _, row: self.load_project(*row.song_ref))
         listing.set_filter_func(lambda row: search.get_text().casefold() in row.search_text)
         search.connect('search-changed', lambda *_: listing.invalidate_filter())
-        outer.append(scrolled(listing))
+        if songs:
+            outer.append(scrolled(listing))
         if not songs:
             empty = box(spacing=12)
+            empty.set_vexpand(True)
             empty.set_valign(Gtk.Align.CENTER)
             empty.append(label(t('No songs yet'), 'heading'))
             empty.append(label(t('Write independently, or gather songs around a theme and shape an album or EP.'), 'caption'))
@@ -308,6 +343,7 @@ class Studio(Gtk.Application):
         self.editors, self.lockers, self.feedback_editor = {}, {}, None
         self.clear(self.content)
         outer = margins(box(spacing=16), 24)
+        outer.set_vexpand(True)
         self.content.append(outer)
         p, i = self.project, self.track_index or 0
         self.track_index = i
@@ -344,13 +380,17 @@ class Studio(Gtk.Application):
         toolbar.append(button(t('Reopen') if track['approved'] else t('Approve song'), self.approve, not track['approved']))
         outer.append(toolbar)
         self.editor_stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
+        self.editor_stack.set_vhomogeneous(False)
         switcher = Gtk.StackSwitcher(stack=self.editor_stack, halign=Gtk.Align.START)
         outer.append(switcher)
         outer.append(self.editor_stack)
         self.editor_stack.set_vexpand(True)
         pages = {}
         for name in ['Lyrics', 'Sound', 'Review']:
-            page = margins(box(spacing=16), 6)
+            page = box(spacing=24)
+            page.set_margin_top(8)
+            page.set_margin_end(8)
+            page.set_margin_bottom(8)
             pages[name] = page
             self.editor_stack.add_titled(scrolled(page), name, t(name))
         self.editor_stack.set_visible_child_name(getattr(self, 'editor_tab', 'Lyrics'))
@@ -358,7 +398,7 @@ class Studio(Gtk.Application):
         song = track['current']
         for field in FIELDS:
             target = pages['Lyrics'] if field in ['title', 'lyrics'] else pages['Sound']
-            fieldbox = box(spacing=7)
+            fieldbox = box(spacing=8)
             head = box(False)
             title = label(t(LABELS[field]), 'heading')
             title.set_hexpand(True)
@@ -370,8 +410,13 @@ class Studio(Gtk.Application):
             head.append(button(t('Copy'), lambda f=field: self.copy_field(f)))
             fieldbox.append(head)
             if field in ['lyrics', 'style_prompt', 'exclusions']:
-                widget, wrap = text_input(song[field], 350 if field == 'lyrics' else 100)
+                widget, wrap = text_input(song[field], 120 if field == 'lyrics' else 100)
+                if field == 'lyrics':
+                    fieldbox.set_vexpand(True)
+                    wrap.set_vexpand(True)
                 fieldbox.append(wrap)
+                if field in ['style_prompt', 'exclusions']:
+                    limit_text(widget, fieldbox)
             elif field in ['weirdness', 'style_influence']:
                 widget = spin(song[field], 0, 100)
                 fieldbox.append(widget)
@@ -389,6 +434,7 @@ class Studio(Gtk.Application):
         review.append(label(t('Feedback'), 'heading'))
         review.append(label(t('Describe what to change, or add listening notes from Suno.'), 'caption'))
         self.feedback_editor, wrap = text_input(track.get('feedback', ''), 170)
+        wrap.set_vexpand(True)
         self.feedback_editor.set_sensitive(not track['approved'] and not self.busy)
         review.append(wrap)
         revise = button(t('Rewrite song'), self.rewrite, True)
@@ -439,7 +485,9 @@ class Studio(Gtk.Application):
         window = Gtk.Window(title=title, transient_for=self.win, modal=True)
         window.set_default_size(width, height)
         header = Gtk.HeaderBar(show_title_buttons=False)
-        header.set_title_widget(label(title, 'heading'))
+        heading = label(title, 'heading')
+        heading.set_wrap(False)
+        header.set_title_widget(heading)
         header.pack_end(button(t('Close'), window.close))
         window.set_titlebar(header)
         controller = Gtk.EventControllerKey()
@@ -451,10 +499,10 @@ class Studio(Gtk.Application):
         controller.connect('key-pressed', key)
         window.add_controller(controller)
         window.escape_controller = controller
-        child = margins(box(spacing=16), 22)
+        child = margins(box(spacing=16), 24)
         root = box(spacing=0)
         root.append(scrolled(child))
-        window.actions = margins(box(False), 16)
+        window.actions = margins(box(False), 24)
         window.actions.set_visible(False)
         root.append(window.actions)
         window.set_child(root)
@@ -473,6 +521,7 @@ class Studio(Gtk.Application):
         c.append(label(t('Style prompt'), 'heading'))
         style, wrap = text_input('', 110)
         c.append(wrap)
+        limit_text(style, c)
         c.append(label(t('Optional theme'), 'heading'))
         theme, wrap = text_input('', 80)
         c.append(wrap)
@@ -508,7 +557,8 @@ class Studio(Gtk.Application):
                 window.close()
             except Exception as e:
                 error.set_text(str(e))
-        c.append(button(t('Create'), save, True))
+        window.actions.append(button(t('Create'), save, True))
+        window.actions.set_visible(True)
         window.present()
         return window
 
@@ -570,7 +620,8 @@ class Studio(Gtk.Application):
                 self.show_library(changed['id'])
             except Exception as e:
                 error.set_text(str(e))
-        c.append(button(t('Save collection'), save, True))
+        window.actions.append(button(t('Save collection'), save, True))
+        window.actions.set_visible(True)
         window.present()
         return window
 
@@ -602,7 +653,8 @@ class Studio(Gtk.Application):
                 window.close()
             except Exception as e:
                 error.set_text(str(e))
-        c.append(button(t('Save'), save, True))
+        window.actions.append(button(t('Save'), save, True))
+        window.actions.set_visible(True)
         window.present()
 
     def settings_dialog(self):
@@ -666,7 +718,8 @@ class Studio(Gtk.Application):
         c.append(label(t('Only the interface changes. Song text and lyric language stay unchanged.'), 'caption'))
         c.append(Gtk.Separator())
         expander = Gtk.Expander(label=t('Local writing'))
-        engine = box(spacing=12)
+        engine = box(spacing=16)
+        engine.set_margin_top(16)
         expander.set_child(engine)
         c.append(expander)
         engine.append(label(t('Only connects to Ollama on this computer.'), 'caption'))
@@ -817,7 +870,8 @@ class Studio(Gtk.Application):
                 return
             window.close()
             self.start_jobs([], text_of(feedback), selected)
-        c.append(button(t('Rewrite selected songs'), run, True))
+        window.actions.append(button(t('Rewrite selected songs'), run, True))
+        window.actions.set_visible(True)
         window.present()
 
     def start_jobs(self, indices, feedback='', song_jobs=None):
@@ -911,6 +965,7 @@ class Studio(Gtk.Application):
         c.append(pick)
         preview, wrap = text_input('', 360)
         preview.set_editable(False)
+        wrap.set_vexpand(True)
         c.append(wrap)
         note = label('', 'caption')
         c.append(note)
@@ -934,7 +989,8 @@ class Studio(Gtk.Application):
                 note.set_text(str(e))
         restore_button = button(t('Restore version'), restore, True)
         restore_button.set_sensitive(not track['approved'] and not self.busy)
-        c.append(restore_button)
+        window.actions.append(restore_button)
+        window.actions.set_visible(True)
         window.present()
 
     def export_dialog(self):
@@ -961,8 +1017,10 @@ class Studio(Gtk.Application):
         window, c = self.dialog(t('Export songs'), 700, 650)
         preview, wrap = text_input(content, 400)
         preview.set_editable(False)
+        wrap.set_vexpand(True)
         c.append(wrap)
-        c.append(button(t('Copy all'), lambda: self.copy(content)))
+        window.actions.append(button(t('Copy all'), lambda: self.copy(content)))
+        window.actions.set_visible(True)
         def save():
             picker = Gtk.FileChooserNative(title=t('Choose export folder'), transient_for=window,
                 action=Gtk.FileChooserAction.SELECT_FOLDER, accept_label=t('Export here'), cancel_label=t('Cancel'))
@@ -980,7 +1038,8 @@ class Studio(Gtk.Application):
                 dialog.destroy()
             picker.connect('response', response)
             picker.show()
-        c.append(button(t('Save text and history'), save, True))
+        window.actions.append(button(t('Save text and history'), save, True))
+        window.actions.set_visible(True)
         window.present()
 
     def close(self, *_):
@@ -1028,6 +1087,15 @@ class Studio(Gtk.Application):
             self.settings_window.close()
             assert self.settings['colour_mode'] == 'system'
             assert self.settings['ui_language'] == 'system'
+            limited, container = text_input()
+            limit_text(limited, box())
+            buf = limited.get_buffer()
+            buf.set_text('é' * TEXT_LIMIT)
+            buf.insert(buf.get_end_iter(), 'x', -1)
+            assert len(text_of(limited)) == TEXT_LIMIT
+            buf.delete(buf.get_start_iter(), buf.get_iter_at_offset(1))
+            buf.insert(buf.get_end_iter(), 'x', -1)
+            assert len(text_of(limited)) == TEXT_LIMIT
             self.smoke_ok = True
             print('GTK_SMOKE_OK: song editor, settings close/reopen, language and colour apply/reset', flush=True)
             GLib.timeout_add(300, self.capture_smoke)

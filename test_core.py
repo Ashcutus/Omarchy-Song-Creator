@@ -167,3 +167,31 @@ class TransportTests(unittest.TestCase):
 
 if __name__ == '__main__':
     unittest.main()
+
+
+class CharacterLimitTests(unittest.TestCase):
+    def test_exact_limit_and_unicode(self):
+        for field in ('style_prompt', 'exclusions'):
+            value = song()
+            value[field] = 'é' * 1000
+            self.assertEqual(validate_song(value)[field], value[field])
+            value[field] += 'x'
+            with self.assertRaisesRegex(ValueError, '1000'):
+                validate_song(value)
+
+    def test_invalid_revision_does_not_use_allowance(self):
+        project = create_project('Song', 'Folk', 1, 180, 240, 3)
+        commit_version(project, 0, song(), 'initial')
+        before = copy.deepcopy(project)
+        revision = song()
+        revision['exclusions'] = 'x' * 1001
+        with self.assertRaises(ValueError):
+            commit_version(project, 0, revision, 'rewrite')
+        self.assertEqual(project, before)
+
+    def test_brief_and_schema_limits(self):
+        create_project('Song', 'x' * 1000, 1, 180, 240, 3)
+        with self.assertRaisesRegex(ValueError, '1000'):
+            create_project('Song', 'x' * 1001, 1, 180, 240, 3)
+        for field in ('style_prompt', 'exclusions'):
+            self.assertEqual(SCHEMA['properties'][field]['maxLength'], 1000)
