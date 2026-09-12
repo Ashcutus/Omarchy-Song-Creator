@@ -13,7 +13,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk, Gio, GLib
-from core import (TEXT_LIMIT, FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
+from core import (PRODUCTION_OPTIONS, production_direction, TEXT_LIMIT, FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
                   make_collection, commit_version, restore_version, generate_song, track_status, song_text)
 from appearance import COLOUR_KEYS, LAYOUT_CSS, read_palette, colour_css, resolved_palette, valid_colour
 from i18n import LANGUAGES, set_language, system_language, t
@@ -188,6 +188,9 @@ class Studio(Gtk.Application):
         self.settings_button = button(t('Settings'), self.settings_dialog)
         header.pack_start(self.new_song_button)
         header.pack_end(self.settings_button)
+        self.suno_button = button(t('Open Suno'), self.open_suno)
+        self.suno_button.set_tooltip_text(t('Open Suno in your browser to log in or create music.'))
+        header.pack_end(self.suno_button)
         self.win.set_titlebar(header)
         root = box(spacing=0)
         self.win.set_child(root)
@@ -354,6 +357,7 @@ class Studio(Gtk.Application):
         title = label(song_title(p, i), 'title')
         title.set_hexpand(True)
         breadcrumb.append(title)
+        breadcrumb.append(button(t('Production'), self.production_dialog))
         breadcrumb.append(button(t('Organise song'), self.organise_dialog))
         outer.append(breadcrumb)
         sub = box(False, 16)
@@ -481,6 +485,16 @@ class Studio(Gtk.Application):
         self.win.get_clipboard().set(value)
         self.notify(t('Copied to clipboard.'))
 
+    def open_suno(self):
+        launcher = Gtk.UriLauncher.new('https://suno.com/create')
+        def opened(source, result):
+            try:
+                source.launch_finish(result)
+            except GLib.Error as error:
+                if not error.matches(Gtk.dialog_error_quark(), Gtk.DialogError.DISMISSED):
+                    self.notify(t('Could not open Suno: {error}', error=error.message), True)
+        launcher.launch(self.win, None, opened)
+
     def dialog(self, title, width=640, height=650):
         window = Gtk.Window(title=title, transient_for=self.win, modal=True)
         window.set_default_size(width, height)
@@ -508,6 +522,44 @@ class Studio(Gtk.Application):
         window.set_child(root)
         return window, child
 
+    def production_controls(self, container, value=None):
+        direction = production_direction(value)
+        controls = {}
+        for key, title in [('density', 'Production'), ('dynamics', 'Dynamics'), ('vocals', 'Vocal delivery')]:
+            container.append(label(t(title), 'heading'))
+            options = PRODUCTION_OPTIONS[key]
+            controls[key] = dropdown(list(options), direction[key], [t(v[0]) for v in options.values()])
+            container.append(controls[key])
+        container.append(label(t('Arrangement and delivery notes'), 'heading'))
+        notes, wrap = text_input(direction['notes'], 100)
+        container.append(wrap)
+        limit_text(notes, container)
+        container.append(label(t('Applies to the next draft or rewrite. Suno may interpret these directions differently.'), 'caption'))
+        return lambda: production_direction({**{key: text_of(widget) for key, widget in controls.items()}, 'notes': text_of(notes)})
+
+    def production_dialog(self):
+        if self.busy or not self.flush():
+            return
+        window, c = self.dialog(t('Production direction'), 640, 700)
+        track = self.project['tracks'][self.track_index]
+        collect = self.production_controls(c, track.get('production'))
+        error = label('', 'error')
+        c.append(error)
+        def save():
+            try:
+                candidate = copy.deepcopy(self.project)
+                candidate['tracks'][self.track_index]['production'] = collect()
+                self.store.save(candidate)
+                self.project = candidate
+                window.close()
+                self.notify(t('Production direction saved for the next draft or rewrite.'))
+            except Exception as exc:
+                error.set_text(str(exc))
+        window.actions.append(button(t('Save'), save, True))
+        window.actions.set_visible(True)
+        window.present()
+        return window
+
     def new_dialog(self):
         if self.busy:
             self.notify(t('Finish or stop writing first.'))
@@ -525,6 +577,12 @@ class Studio(Gtk.Application):
         c.append(label(t('Optional theme'), 'heading'))
         theme, wrap = text_input('', 80)
         c.append(wrap)
+        production = Gtk.Expander(label=t('Production direction'))
+        production_box = box(spacing=16)
+        production_box.set_margin_top(16)
+        production.set_child(production_box)
+        collect_production = self.production_controls(production_box, {'density': 'restrained'})
+        c.append(production)
         collections = self.store.collections()
         ids = [''] + [x['id'] for x in collections]
         pick = dropdown(ids, self.collection_id or '', [t('No collection')] + [x['name'] for x in collections])
@@ -545,6 +603,8 @@ class Studio(Gtk.Application):
                 if not self.flush():
                     return
                 p = create_project(text_of(entries['name']) or t('Untitled song'), text_of(style), text_of(count), text_of(minimum), text_of(maximum), text_of(limit), text_of(theme), text_of(entries['language']))
+                for track in p['tracks']:
+                    track['production'] = collect_production()
                 self.store.save(p)
                 coll_id = text_of(pick)
                 if coll_id:
