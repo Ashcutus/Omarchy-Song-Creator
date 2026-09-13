@@ -2,6 +2,26 @@
 
 A native GTK 4 app for writing **songs** with a local Ollama model. Develop a song on its own, collect ideas around a theme, and organise an album or EP when you want to. Copy the finished lyrics and settings into Suno yourself; no Suno API is needed.
 
+![Versework song library](docs/screenshots/song-library.png)
+
+*Keep every draft in one searchable, song-first library.*
+
+![Versework song editor](docs/screenshots/song-editor.png)
+
+*Shape lyrics, Suno-ready sound settings, delivery cues, and revisions in one focused editor.*
+
+![Versework Settings](docs/screenshots/settings.png)
+
+*Use your Omarchy theme, configure rewrite limits, choose a language, and manage local writing from Settings.*
+
+## Why Versework
+
+| Create | Refine | Organise | Handoff |
+| --- | --- | --- | --- |
+| Start with a style brief, theme, duration, and optional lyrics. | Refresh lyrics, request rewrites, preserve locked fields, and keep version history. | Collect songs around a theme, then shape an album or EP when it makes sense. | Copy the finished lyrics and Suno settings, or open Suno directly from the app. |
+
+Versework keeps the creative loop local and reviewable: Ollama writes on your computer, every generated field remains editable, and your saved songs stay in a local SQLite library. Production controls cover arrangement density, dynamics, vocal delivery, performance feel, and drum groove—from machine-perfect to a loose Sunday night in the pub.
+
 ## Install on Omarchy
 
 ```bash
