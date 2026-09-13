@@ -9,7 +9,7 @@ LAYOUT_CSS = '''
 window { font-family: monospace; font-size: 13px; }
 .title { font-size: 20px; font-weight: 700; }
 .heading { font-size: 14px; font-weight: 700; }
-.caption { opacity: 0.72; font-size: 12px; }
+.caption { opacity: 0.84; font-size: 12px; }
 headerbar { min-height: 40px; padding: 4px 12px; box-shadow: none; }
 .sidebar { padding: 12px; border-right: 1px solid alpha(currentColor, 0.15); }
 .card { border-radius: 0; padding: 12px; border: 1px solid alpha(currentColor, 0.12); }
@@ -78,15 +78,17 @@ headerbar {{ border-bottom: 1px solid alpha({accent}, 0.6); }}
 window > box {{ border: 1px solid alpha({accent}, 0.55); }}
 button, dropdown > button {{ background: transparent; color: {fg}; border: 1px solid alpha({fg}, 0.35); }}
 button:hover {{ background: mix({bg}, {fg}, 0.08); border-color: {accent}; }}
-button:disabled {{ opacity: 0.45; }}
+button:disabled {{ opacity: 0.58; }}
 button.suggested-action {{ background: alpha({accent}, 0.12); color: {accent}; border-color: {accent}; }}
 button.suggested-action:hover {{ background: alpha({accent}, 0.22); }}
+button.copy-confirmed {{ background: alpha({accent}, 0.18); color: {accent}; border-color: {accent}; }}
 stackswitcher button:checked, list row:selected {{ background: alpha({accent}, 0.14); color: {accent}; }}
 button:focus-visible, entry:focus-within, .text-editor:focus-within {{ outline: 1px solid {accent}; outline-offset: -1px; }}
 entry, textview, textview text {{ background: {bg}; color: {fg}; caret-color: {accent}; }}
 list, scrolledwindow {{ background-color: transparent; }}
 separator {{ background: alpha({fg}, 0.15); }}
 .accent {{ color: {accent}; }}
+label.error, .error {{ color: {fg}; opacity: 1; font-weight: 700; }}
 selection {{ background: {accent}; color: {on_accent}; }}
 '''
 
