@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 from string import Formatter
 from core import Store, create_project, make_collection, commit_version, prompt_for
-from appearance import read_palette, colour_css, resolved_palette, text_on
+from appearance import read_palette, colour_css, mix_colour, resolved_palette, text_on
 import i18n
 from test_core import song
 
@@ -131,6 +131,16 @@ class AppearanceTests(unittest.TestCase):
             colour_css({'background': 'red; }', 'surface': '#123456', 'foreground': '#FFFFFF', 'accent': '#223344'})
         self.assertEqual(text_on('#FFFFFF'), '#000000')
         self.assertEqual(text_on('#000000'), '#ffffff')
+
+    def test_controls_use_readable_solid_colours(self):
+        dark = {'background': '#100B20', 'surface': '#281A45', 'foreground': '#F5F1FF', 'accent': '#8B3DFF'}
+        light = {'background': '#FAFAFA', 'surface': '#E8E8E8', 'foreground': '#161616', 'accent': '#5A20B5'}
+        self.assertEqual(mix_colour('#000000', '#FFFFFF', 0.5), '#808080')
+        for palette in (dark, light):
+            css = colour_css(palette)
+            button_bg = mix_colour(palette['background'], palette['surface'], 0.72)
+            self.assertIn(f'button, dropdown > button {{ background: {button_bg};', css)
+            self.assertIn(f'button.suggested-action {{ background: {palette["accent"]}; color: {text_on(palette["accent"])};', css)
 
 
 class LanguageTests(unittest.TestCase):
