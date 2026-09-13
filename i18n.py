@@ -79,6 +79,7 @@ Save|Speichern|Guardar|Enregistrer
 Copy|Kopieren|Copiar|Copier
 Copy song|Song kopieren|Copiar canción|Copier la chanson
 Copy all|Alles kopieren|Copiar todo|Tout copier
+Copied|Kopiert|Copiado|Copié
 Write song|Song schreiben|Escribir canción|Écrire la chanson
 Write these songs|Diese Songs schreiben|Escribir estas canciones|Écrire ces chansons
 Write remaining drafts|Fehlende Entwürfe schreiben|Escribir borradores pendientes|Écrire les brouillons restants

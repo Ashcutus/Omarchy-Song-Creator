@@ -349,6 +349,7 @@ class Studio(Gtk.Application):
 
     def render_project(self):
         self.editors, self.lockers, self.feedback_editor = {}, {}, None
+        self.copy_buttons = {}
         self.clear(self.content)
         outer = margins(box(spacing=12), 20)
         outer.set_vexpand(True)
@@ -383,7 +384,8 @@ class Studio(Gtk.Application):
             return
         toolbar = box(False)
         toolbar.append(button(t('Save'), self.save_edits))
-        toolbar.append(button(t('Copy song'), self.copy_current))
+        copy_song_button = button(t('Copy song'), lambda: self.copy_current(copy_song_button))
+        toolbar.append(copy_song_button)
         toolbar.append(button(t('Versions'), self.history_dialog))
         toolbar.append(button(t('Export song'), self.export_dialog))
         toolbar.append(button(t('Reopen') if track['approved'] else t('Approve song'), self.approve, not track['approved']))
@@ -416,7 +418,9 @@ class Studio(Gtk.Application):
             lock.set_sensitive(not track['approved'] and not self.busy)
             self.lockers[field] = lock
             head.append(lock)
-            head.append(button(t('Copy'), lambda f=field: self.copy_field(f)))
+            copy_control = self.field_copy_button(field)
+            self.copy_buttons[field] = copy_control
+            head.append(copy_control)
             fieldbox.append(head)
             if field in ['lyrics', 'style_prompt', 'exclusions']:
                 widget, wrap = text_input(song[field], 120 if field == 'lyrics' else 100)
@@ -482,12 +486,31 @@ class Studio(Gtk.Application):
             self.render_project()
             self.notify(t('Edits saved.'))
 
-    def copy_field(self, field):
-        self.copy(str(text_of(self.editors[field])))
+    def flash_copy(self, control, default_label):
+        if control is None:
+            return
+        control.set_label(t('Copied'))
+        control.add_css_class('copy-confirmed')
+        def restore():
+            if control.get_root() is None:
+                return False
+            control.set_label(default_label)
+            control.remove_css_class('copy-confirmed')
+            return False
+        GLib.timeout_add(1200, restore)
 
-    def copy_current(self):
+    def field_copy_button(self, field):
+        control = button(t('Copy'), lambda: self.copy_field(field, control))
+        return control
+
+    def copy_field(self, field, control=None):
+        self.copy(str(text_of(self.editors[field])))
+        self.flash_copy(control, t('Copy'))
+
+    def copy_current(self, control=None):
         if self.flush():
             self.copy(song_text(self.project['tracks'][self.track_index]['current']))
+            self.flash_copy(control, t('Copy song'))
 
     def copy(self, value):
         self.win.get_clipboard().set(value)
@@ -1240,7 +1263,8 @@ class Studio(Gtk.Application):
         preview.set_editable(False)
         wrap.set_vexpand(True)
         c.append(wrap)
-        window.actions.append(button(t('Copy all'), lambda: self.copy(content)))
+        copy_all_button = button(t('Copy all'), lambda: (self.copy(content), self.flash_copy(copy_all_button, t('Copy all'))))
+        window.actions.append(copy_all_button)
         window.actions.set_visible(True)
         def save():
             picker = Gtk.FileChooserNative(title=t('Choose export folder'), transient_for=window,
@@ -1284,6 +1308,8 @@ class Studio(Gtk.Application):
             collection = make_collection('After the streetlights', 'collection', 'Small stories from the city after dark', [p['tracks'][0]['id']])
             self.store.save_collection(collection)
             self.load_project(p['id'], 0)
+            self.copy_buttons['lyrics'].emit('clicked')
+            assert self.copy_buttons['lyrics'].get_label() == t('Copied')
             self.approve()
             self.approve()
             # Close must discard unsaved settings, even with an invalid model field.

@@ -81,6 +81,7 @@ button:hover {{ background: mix({bg}, {fg}, 0.08); border-color: {accent}; }}
 button:disabled {{ opacity: 0.58; }}
 button.suggested-action {{ background: alpha({accent}, 0.12); color: {accent}; border-color: {accent}; }}
 button.suggested-action:hover {{ background: alpha({accent}, 0.22); }}
+button.copy-confirmed {{ background: alpha({accent}, 0.18); color: {accent}; border-color: {accent}; }}
 stackswitcher button:checked, list row:selected {{ background: alpha({accent}, 0.14); color: {accent}; }}
 button:focus-visible, entry:focus-within, .text-editor:focus-within {{ outline: 1px solid {accent}; outline-offset: -1px; }}
 entry, textview, textview text {{ background: {bg}; color: {fg}; caret-color: {accent}; }}
