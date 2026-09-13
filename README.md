@@ -57,11 +57,12 @@ git pull && ./install.sh --bar-position keep
 
 Use **Open Suno** in the top bar to open Suno’s creation page in your default browser. Log in there if needed; Versework does not handle your Suno credentials or send song text automatically.
 
-- **New song** starts with one song by default. Enter its working title, style, optional theme, lyric language, target duration range and rewrite limit. You can request several song ideas at once.
+- **New song** starts with one song by default. Enter its working title, style, optional theme, lyric language, target duration range and rewrite limit. You can also paste **Your lyrics (optional)**. Leave them empty for Ollama to write; choose **Offer improvement suggestions** to let it revise while preserving your voice, or **Leave my lyrics unchanged** to use them exactly. You can request several song ideas at once.
 - The **Songs** library shows all your songs, including unfinished drafts, and searches titles, styles and themes.
 - Each song has **Lyrics**, **Sound** and **Review** tabs. All eight fields are editable and individually copyable: title, lyrics, style prompt, exclusions, vocal gender, weirdness %, style influence %, and variety (`off`, `normal`, `high`, `extra`, `max`).
 - **Style prompt** and **Exclusions** each allow up to **1,000 characters**, including spaces and punctuation. Their editors show a live count and reject typing or pasting beyond the limit. This also applies to the initial style brief and AI output. Existing longer saved text is preserved for shortening; it is never silently truncated.
-- Write a draft, give feedback, lock fields you want preserved exactly, and approve it when ready. Version history preserves earlier drafts and manual edits.
+- **Refresh lyrics** on the Lyrics tab offers Light polish, Stronger chorus, Fresh lyrics, and Update delivery cues. Choosing one appends editable instructions to Review; it does not start generation. Click **Rewrite song** when ready. Existing locks and rewrite limits apply.
+- Write a draft, give feedback, lock fields you want preserved exactly, and approve it when ready. Version history preserves earlier drafts and manual edits. The working title is metadata only and is never used as lyric material.
 - Generate audio manually in Suno, then bring your listening notes back into **Review**. Target duration guides the writing; Suno determines the audio length.
 
 ## Control production and delivery
@@ -69,6 +70,8 @@ Use **Open Suno** in the top bar to open Suno’s creation page in your default 
 In **New song → Production direction**, choose production density, dynamics, vocal delivery and performance feel, then add specific arrangement notes. New songs default to **Restrained** production; other controls follow your style until you choose otherwise. Existing songs keep their original direction until you change it.
 
 **Performance feel** offers **Natural and understated** (subtle timing variation and unforced phrasing), **Live-room performance** (responsive ensemble timing and minimal editing), or **Tight and polished**. Follow style leaves this choice open. These provide concrete delivery cues and exclusions; they cannot guarantee that Suno sounds human or remove every synthetic artefact.
+
+**Drum feel** is a 0–100 slider from **Machine-perfect** to **Sunday night in the pub**, with session drummer, relaxed pocket and loose live drummer bands between them. The selected groove, velocity and fill language is sent to the style prompt, exclusions and lyric delivery cues. It is a request for a played feel, not random timing or a guarantee that Suno will reproduce it exactly.
 
 Use the **Production** button on any song to adjust its next draft or rewrite. For a sparse result, try **Stripped back**, **Steady and contained**, and **Intimate solo**, with notes such as “Fingerpicked guitar and one dry lead voice; leave silence between phrases.”
 
@@ -87,6 +90,8 @@ Earlier multi-song projects are automatically represented as collections on firs
 ## Appearance and interface language
 
 **Settings** is always dismissible with **Close**, the window close control, or **Escape**. Closing discards changes that have not been applied. **Apply** saves preferences and closes Settings, including when nothing has changed. If validation fails, Settings stays open so you can correct the error. Local writing controls are in a collapsible section and are not required for changing appearance or closing the window.
+
+Under **Rewrite limits**, set the default number of AI rewrites per song or enable **Disable rewrite limits completely**. Applying this setting updates existing songs as well as new ones. A zero limit still allows an initial draft but no rewrites.
 
 ### Theme and colours
 

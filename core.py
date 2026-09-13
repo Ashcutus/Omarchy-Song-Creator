@@ -54,6 +54,18 @@ PRODUCTION_OPTIONS = {
     },
 }
 
+DRUM_FEELS = [
+    ('Machine-perfect', 'grid-locked drums, uniform hits', 'timing drift', '[Drums: machine-perfect timing]'),
+    ('Tight session drummer', 'tight played drums, subtle touch variation', 'identical drum velocities', '[Drums: tight human pocket]'),
+    ('Relaxed pocket', 'relaxed drum pocket, varied ghost notes', 'rigid drum quantization, identical drum loops', '[Drums: relaxed pocket, ghost notes]'),
+    ('Loose live drummer', 'loose live drums, push-and-pull timing', 'rigid drum quantization, identical drum loops', '[Drums: loose live feel]'),
+    ('Sloppy Sunday night in the pub', 'ragged pub-band drums, drifting fills', 'rigid drum quantization, identical drum loops', '[Drums: ragged pub-band feel]'),
+]
+
+
+def drum_feel(value):
+    return DRUM_FEELS[min(4, max(0, (int(value) + 12) // 25))]
+
 
 def production_direction(value=None):
     value = value or {}
@@ -69,6 +81,10 @@ def production_direction(value=None):
     if not isinstance(notes, str) or len(notes) > TEXT_LIMIT:
         raise ValueError('Production notes must be 1000 characters or fewer.')
     result['notes'] = notes
+    drums = value.get('drums')
+    if drums is not None and (type(drums) is not int or not 0 <= drums <= 100):
+        raise ValueError('Drum feel must be a whole number from 0 to 100.')
+    result['drums'] = drums
     return result
 
 
@@ -77,13 +93,15 @@ def production_brief(track):
     return {
         'choices': direction,
         'delivery': [PRODUCTION_OPTIONS[key][direction[key]][1]
-                     for key in PRODUCTION_OPTIONS if direction[key] != 'style'],
+                     for key in PRODUCTION_OPTIONS if direction[key] != 'style']
+                    + ([drum_feel(direction['drums'])[1] + '. ' + drum_feel(direction['drums'])[2]] if direction['drums'] is not None else []),
         'instructions': 'Apply this direction to style_prompt and concise bracketed performance cues in lyrics. Keep cues separate from sung words. Add relevant unwanted production elements to exclusions. Respect locked fields. For instrumental songs, omit vocal directions and vocal lyric cues. Keep style_prompt and exclusions within 1000 characters each. If specific production choices conflict with broad genre conventions, follow the specific choices. These are creative requests, not guarantees of audio behaviour.',
     }
 
 
 # Compact, auditable delivery cues. These are writing directions, not Suno API parameters.
 PRODUCTION_CUES = {
+    'drums': {},
     'feel': {
         'human': ('natural timing and phrasing', 'hard quantization, excessive pitch correction', '[Natural phrasing, subtle timing variation]'),
         'live': ('live-room ensemble feel', 'hard quantization, excessive editing, crowd noise', '[Live-room feel, responsive timing]'),
@@ -112,6 +130,8 @@ def production_requirements(track, instrumental=False):
     direction = production_direction(track.get('production'))
     required = {'style_prompt': [], 'exclusions': [], 'lyrics': []}
     for key, options in PRODUCTION_CUES.items():
+        if key == 'drums':
+            continue
         if key == 'vocals' and instrumental:
             continue
         if direction[key] == 'style':
@@ -120,6 +140,13 @@ def production_requirements(track, instrumental=False):
         required['style_prompt'].append(style)
         required['exclusions'].extend(exclusions.split(', ') if exclusions else [])
         required['lyrics'].append(cue)
+    if direction['drums'] is not None:
+        style, exclusions, cue = drum_feel(direction['drums'])[1:]
+        required['style_prompt'].append(style)
+        required['exclusions'].extend(exclusions.split(', '))
+        required['lyrics'].append(cue)
+    if track.get('lyrics_source') and track.get('lyrics_assist') == 'preserve':
+        required.pop('lyrics', None)
     return {field: values for field, values in required.items() if field not in track.get('locks', [])}
 
 
@@ -167,18 +194,23 @@ def validate_song(value):
     return out
 
 
-def create_project(name, style, count, minimum, maximum, limit, theme='', language='English'):
+def create_project(name, style, count, minimum, maximum, limit, theme='', language='English', lyrics=''):
     if len(style) > TEXT_LIMIT:
         raise ValueError(f'Style prompt must be {TEXT_LIMIT} characters or fewer.')
     if not name.strip() or not style.strip():
         raise ValueError('Give the project a name and a style prompt.')
-    if not (1 <= count <= 20 and 30 <= minimum <= maximum <= 1200 and 0 <= limit <= 20):
+    if not (1 <= count <= 20 and 30 <= minimum <= maximum <= 1200 and (limit is None or 0 <= limit <= 20)):
         raise ValueError('Check song count (1–20), duration (30–1200 seconds) and rewrites (0–20).')
+    lyrics = str(lyrics or '').strip()
+    if len(lyrics) > 100000:
+        raise ValueError('Provided lyrics are too long.')
     return {'id': uuid.uuid4().hex, 'name': name.strip(), 'style': style.strip(), 'count': count,
             'minimum': minimum, 'maximum': maximum, 'limit': limit, 'theme': theme.strip(),
+            'lyrics_source': lyrics, 'lyrics_assist': 'suggest',
             'language': language.strip() or 'English', 'created': now(), 'updated': now(),
             'tracks': [{'id': uuid.uuid4().hex, 'number': i + 1, 'current': None, 'versions': [],
-                        'rewrites': 0, 'approved': False, 'locks': [], 'feedback': ''} for i in range(count)]}
+                        'rewrites': 0, 'approved': False, 'locks': [], 'feedback': '',
+                        'lyrics_source': lyrics if i == 0 else '', 'lyrics_assist': 'suggest'} for i in range(count)]}
 
 
 def commit_version(project, index, song, kind, feedback='', model=''):
@@ -188,7 +220,7 @@ def commit_version(project, index, song, kind, feedback='', model=''):
     if kind == 'rewrite':
         if not track['current']:
             raise ValueError('Generate an initial draft first.')
-        if track['rewrites'] >= project['limit']:
+        if project['limit'] is not None and track['rewrites'] >= project['limit']:
             raise ValueError('This song has reached its rewrite limit.')
     elif kind == 'initial' and track['current']:
         raise ValueError('This song already has an initial draft.')
@@ -218,7 +250,7 @@ def track_status(project, track):
         return 'Approved'
     if not track['current']:
         return 'Not drafted'
-    if track['rewrites'] >= project['limit']:
+    if project['limit'] is not None and track['rewrites'] >= project['limit']:
         return 'Limit reached · review needed'
     return 'Ready for review'
 
@@ -239,7 +271,16 @@ def prompt_for(project, index, feedback=''):
     brief['production'] = production_brief(track)
     brief['required_delivery_cues'] = production_requirements(track, (track.get('current') or {}).get('vocal_gender') == 'instrumental')
     brief['track_role'] = role
-    action = 'Write the initial song. Give this song its own identity. It may stand alone or belong to an optional collection. Read peer lyrics only to avoid repeating them. Write a completely new hook and chorus, not a paraphrase of a peer chorus.'
+    source = track.get('lyrics_source', '')
+    if source:
+        brief['user_lyrics'] = source
+        brief['lyrics_handling'] = track.get('lyrics_assist', 'suggest')
+    action = 'Write the initial song. Give this song its own identity. It may stand alone or belong to an optional collection. Read peer lyrics only to avoid repeating them. Write a completely new hook and chorus, not a paraphrase of a peer chorus. The working title is metadata only: never copy it into lyrics unless user-supplied lyrics explicitly contain it.'
+    if source:
+        if track.get('lyrics_assist', 'suggest') == 'preserve':
+            action += ' The user supplied lyrics are authoritative. Preserve their sung words exactly and use the other fields to complete the Suno settings. Do not rewrite or add lyric lines.'
+        else:
+            action += ' The user supplied lyrics are starting material. Keep their voice and strongest lines, improve phrasing where useful, and explain concrete suggestions in notes.'
     if track['current']:
         action = 'Revise this song according to the feedback. Make substantive changes to unlocked song fields that address the feedback. Preserve strengths and anything not targeted by feedback. Describing a change in notes without actually changing the song is not a revision.'
         brief.update(current_song=track['current'], feedback=feedback, locked_fields=track['locks'])
@@ -248,7 +289,7 @@ def prompt_for(project, index, feedback=''):
         result += '\n\nYOUR REVISION TASK NOW:\n' + feedback + '\nOnly these fields are locked: ' + ', '.join(track['locks']) + '\nWrite the revised song JSON now. The lyrics must actually reflect the requested changes. Do not copy the old song unchanged.'
     else:
         result += '\n\nFINAL WRITING CHECK: This is track ' + str(brief['track_number']) + '. Invent an entirely new chorus. Do not reuse any line from the peer tracks shown above. Shared genre does not mean shared lyrics.'
-    result += '\nPRODUCTION DELIVERY CHECK: Include every required_delivery_cues phrase verbatim in its named field. Put lyrics cues on separate bracketed lines before the sung lyrics; do not sing them. Integrate style phrases naturally and remove contradictory production descriptions. Exclusions name unwanted elements. For instrumental output omit vocal cues and vocal exclusions. Locked fields must stay unchanged. Stay within the 1000-character field limits. Apply arrangement notes too; mentioning a change only in notes does not count.'
+    result += '\nLYRIC SOURCE CHECK: The working title is not lyric content. Never use it as a lyric hook or line. If user lyrics are supplied, follow the selected preserve-or-suggest instruction exactly.\nPRODUCTION DELIVERY CHECK: Include every required_delivery_cues phrase verbatim in its named field. Put lyrics cues on separate bracketed lines before the sung lyrics; do not sing them. Integrate style phrases naturally and remove contradictory production descriptions. Exclusions name unwanted elements. For instrumental output omit vocal cues and vocal exclusions. Locked fields must stay unchanged. Stay within the 1000-character field limits. Apply arrangement notes too; mentioning a change only in notes does not count.'
     return result
 
 
@@ -264,19 +305,37 @@ def overlapping_lines(project, index, song):
     return sorted(repeated)
 
 
+def title_used_as_lyric(project, index, song):
+    source = project['tracks'][index].get('lyrics_source', '')
+    if source and project['tracks'][index].get('lyrics_assist') == 'preserve':
+        return False
+    title = project.get('name', '').strip().casefold()
+    lyrics = song.get('lyrics', '').casefold()
+    # Avoid treating ordinary short words such as “a” or “home” as title bleed.
+    if len(title) < 5 and ' ' not in title:
+        return False
+    return re.search(r'(?<!\w)' + re.escape(title) + r'(?!\w)', lyrics) is not None
+
+
 def generate_song(client, model, project, index, feedback, cancel, progress=None):
     prompt = prompt_for(project, index, feedback)
     for attempt in range(2):
         song = client.generate(model, prompt, cancel, progress)
+        track = project['tracks'][index]
+        if track.get('lyrics_source') and track.get('lyrics_assist') == 'preserve':
+            song['lyrics'] = track['lyrics_source']
         repeats = overlapping_lines(project, index, song) if not project['tracks'][index]['current'] else []
         missing = missing_production(song, project['tracks'][index])
-        if not repeats and not missing:
+        titled = title_used_as_lyric(project, index, song)
+        if not repeats and not missing and not titled:
             return song
         if missing:
             if attempt == 0:
                 prompt += '\n\nThe previous response omitted required production directions. Regenerate the complete song JSON, including these exact cues in their specified fields:\n' + '\n'.join(missing)
             else:
                 raise ValueError('The model omitted your production directions after one retry. Nothing was saved and no rewrite was used. Try again or choose another model.')
+        if titled and attempt == 0:
+            prompt += '\n\nThe previous response used the working title in the lyrics. Remove that title from every sung line and hook; it is metadata only. Return the complete song JSON again.'
         if attempt == 0 and repeats:
             prompt += '\n\nThe previous draft repeated lines from another track. Write a fresh song with a completely different chorus and imagery. DO NOT USE ANY OF THESE LINES:\n' + '\n'.join(repeats)
     raise ValueError('The model kept repeating lyrics from another track after one retry. This draft was not saved. Try writing this track again or choose another model.')
@@ -286,7 +345,7 @@ def export_text(project):
     lines = [f"# {project['name']}", '', f"Style: {project['style']}", f"Target length: {project['minimum']}–{project['maximum']} seconds per song", '']
     for track in project['tracks']:
         lines.extend([f"## {track['number']:02d}. " + (track['current']['title'] if track['current'] else 'Not drafted'),
-                      f"Status: {track_status(project, track)} · Rewrites: {track['rewrites']}/{project['limit']}", ''])
+                      f"Status: {track_status(project, track)} · Rewrites: {track['rewrites']}/{'∞' if project['limit'] is None else project['limit']}", ''])
         if track['current']:
             lines.append(song_text(track['current']))
     return '\n'.join(lines)
