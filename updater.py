@@ -8,9 +8,60 @@ import subprocess
 import tempfile
 
 REPOSITORY = 'https://github.com/Ashcutus/Omarchy-Versework.git'
-FILES = ('app.py', 'core.py', 'appearance.py', 'i18n.py', 'updater.py',
+FILES = ('app.py', 'core.py', 'appearance.py', 'i18n.py', 'updater.py', 'generation_ui.py', 'workflow_ui.py', 'production_ui.py',
          'launch.sh', 'setup-ollama.sh', 'icon.svg', 'README.md')
 REVISION_FILE = '.versework-revision'
+
+
+def has_rollback(target):
+    return (Path(target).parent / '.versework-previous' / REVISION_FILE).is_file()
+
+
+def confirm_startup(target):
+    """Called only after the new application has built its first window."""
+    marker = Path(target) / '.versework-pending'
+    if marker.exists():
+        marker.unlink()
+
+
+def rollback_installation(target):
+    target = Path(target)
+    previous = target.parent / '.versework-previous'
+    if not has_rollback(target) or (target / '.git').exists():
+        raise RuntimeError('No previous installed version is available.')
+    with (target.parent / '.versework-update.lock').open('w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        with tempfile.TemporaryDirectory(prefix='.versework-rollback-', dir=target.parent) as temporary:
+            failed = Path(temporary) / 'app'
+            target.rename(failed)
+            try:
+                previous.rename(target)
+            except BaseException:
+                failed.rename(target)
+                raise
+
+
+def update_bar_plugin(source):
+    """Refresh an already installed launcher without changing enablement or placement."""
+    plugin = Path(os.environ.get('XDG_CONFIG_HOME', str(Path.home() / '.config'))) / 'omarchy/plugins/versework.launcher'
+    if not plugin.is_dir() or plugin.is_symlink():
+        return
+    files = ('manifest.json', 'BarWidget.qml')
+    source = Path(source) / 'bar-plugin'
+    if not all((source / name).is_file() and not (source / name).is_symlink() for name in files):
+        return
+    with tempfile.TemporaryDirectory(prefix='.versework-plugin-', dir=plugin.parent) as temporary:
+        stage = Path(temporary) / 'new'
+        shutil.copytree(plugin, stage)
+        for name in files:
+            shutil.copy2(source / name, stage / name)
+        old = Path(temporary) / 'old'
+        plugin.rename(old)
+        try:
+            stage.rename(plugin)
+        except BaseException:
+            old.rename(plugin)
+            raise
 
 
 def git(*args):
@@ -57,7 +108,10 @@ def replace_installation(source, target, revision):
         for name in ('launch.sh', 'setup-ollama.sh'):
             (stage / name).chmod(0o755)
         (stage / REVISION_FILE).write_text(revision + '\n')
-        backup = Path(temporary) / 'previous'
+        (stage / '.versework-pending').write_text(revision + '\n')
+        backup = target.parent / '.versework-previous'
+        if backup.exists():
+            shutil.rmtree(backup)
         target.rename(backup)
         try:
             stage.rename(target)
@@ -79,3 +133,8 @@ def install_update(target, revision):
             if git('-C', str(source), 'rev-parse', 'HEAD') != revision:
                 raise RuntimeError('A newer update was published. Check for updates again.')
             replace_installation(source, target, revision)
+            try:
+                update_bar_plugin(source)
+            except OSError as error:
+                return 'The app was updated, but its bar icon could not be refreshed: ' + str(error)
+    return ''

@@ -53,7 +53,7 @@ fi
   exit 1
 }
 mkdir -p -- "$versework_target" "$(dirname -- "$versework_desktop")"
-for versework_file in app.py core.py appearance.py i18n.py updater.py launch.sh setup-ollama.sh icon.svg README.md; do
+for versework_file in app.py core.py appearance.py i18n.py updater.py generation_ui.py workflow_ui.py production_ui.py launch.sh setup-ollama.sh icon.svg README.md; do
   if [[ "$versework_source/$versework_file" != "$versework_target/$versework_file" ]]; then
     install -m 644 -- "$versework_source/$versework_file" "$versework_target/$versework_file"
   fi
