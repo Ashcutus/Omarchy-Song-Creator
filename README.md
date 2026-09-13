@@ -10,9 +10,17 @@ A native GTK 4 app for writing **songs** with a local Ollama model. Develop a so
 
 *Shape lyrics, Suno-ready sound settings, delivery cues, and revisions in one focused editor.*
 
+![Versework new song dialog](docs/screenshots/new-song.png)
+
+*Start from a style brief or bring your own lyrics, with Ollama suggestions or exact preservation.*
+
+![Versework production direction](docs/screenshots/production.png)
+
+*Tune arrangement density, dynamics, vocal delivery, performance feel, and drum groove before writing.*
+
 ![Versework Settings](docs/screenshots/settings.png)
 
-*Use your Omarchy theme, configure rewrite limits, choose a language, and manage local writing from Settings.*
+*Use your Omarchy theme, configure rewrite limits, choose a language, and manage local writing and updates from Settings.*
 
 ## Why Versework
 
