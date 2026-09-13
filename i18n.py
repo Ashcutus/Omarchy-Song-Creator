@@ -4,6 +4,20 @@ import os
 LANGUAGES = [('system', 'System language'), ('en', 'English'), ('de', 'Deutsch'), ('es', 'Español'), ('fr', 'Français')]
 # English | German | Spanish | French. Keep format placeholders identical.
 _ROWS = '''
+Drum feel|Schlagzeuggefühl|Carácter de la batería|Jeu de batterie
+Machine-perfect|Maschinenpräzise|Precisión de máquina|Précision mécanique
+Sunday night in the pub|Sonntagabend in der Kneipe|Domingo por la noche en el pub|Dimanche soir au pub
+Tight session drummer|Präziser Studioschlagzeuger|Baterista de estudio preciso|Batteur de studio précis
+Relaxed pocket|Entspannter Groove|Ritmo relajado|Groove détendu
+Loose live drummer|Lockerer Liveschlagzeuger|Baterista en directo suelto|Batteur live décontracté
+Sloppy Sunday night in the pub|Schlampiger Sonntagabend in der Kneipe|Domingo desaliñado en el pub|Dimanche soir brouillon au pub
+Your lyrics (optional)|Deine Songtexte (optional)|Tus letras (opcional)|Vos paroles (facultatives)
+Leave empty to have Ollama write the lyrics.|Leer lassen, damit Ollama den Text schreibt.|Déjalo vacío para que Ollama escriba la letra.|Laissez vide pour qu’Ollama écrive les paroles.
+Offer improvement suggestions|Verbesserungsvorschläge anbieten|Ofrecer sugerencias de mejora|Proposer des améliorations
+Leave my lyrics unchanged|Meine Songtexte unverändert lassen|Dejar mi letra sin cambios|Laisser mes paroles inchangées
+Rewrite limits|Überarbeitungslimits|Límites de revisión|Limites de réécriture
+Disable rewrite limits completely|Überarbeitungslimits vollständig deaktivieren|Desactivar completamente los límites de revisión|Désactiver complètement les limites de réécriture
+Default rewrites per song|Standardüberarbeitungen pro Song|Revisiones predeterminadas por canción|Réécritures par chanson par défaut
 Refresh lyrics|Songtext auffrischen|Renovar letra|Retravailler les paroles
 Light polish|Leicht überarbeiten|Retoque ligero|Retouche légère
 Stronger chorus|Stärkerer Refrain|Estribillo más fuerte|Refrain plus marquant

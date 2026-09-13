@@ -13,7 +13,7 @@ import gi
 gi.require_version('Gtk', '4.0')
 gi.require_version('Gdk', '4.0')
 from gi.repository import Gtk, Gdk, Gio, GLib
-from core import (PRODUCTION_OPTIONS, production_direction, TEXT_LIMIT, FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
+from core import (DRUM_FEELS, drum_feel, PRODUCTION_OPTIONS, production_direction, TEXT_LIMIT, FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
                   make_collection, commit_version, restore_version, generate_song, track_status, song_text)
 from appearance import COLOUR_KEYS, LAYOUT_CSS, read_palette, colour_css, resolved_palette, valid_colour
 from updater import current_revision, latest_revision, install_update
@@ -368,7 +368,7 @@ class Studio(Gtk.Application):
         sub = box(False, 16)
         sub.append(label(t(track_status(p, track)), 'accent'))
         sub.append(label(t('Target: {minimum}–{maximum} seconds', minimum=p['minimum'], maximum=p['maximum']), 'caption'))
-        sub.append(label(t('Rewrites: {used}/{limit}', used=track['rewrites'], limit=p['limit']), 'caption'))
+        sub.append(label(t('Rewrites: {used}/{limit}', used=track['rewrites'], limit='∞' if p['limit'] is None else p['limit']), 'caption'))
         outer.append(sub)
         if not track['current']:
             panel = margins(box(spacing=16), 20)
@@ -439,7 +439,7 @@ class Studio(Gtk.Application):
             self.editors[field] = widget
             target.append(fieldbox)
         refresh = button(t('Refresh lyrics'), self.refresh_lyrics_dialog)
-        refresh.set_sensitive(not track['approved'] and not self.busy and track['rewrites'] < p['limit'])
+        refresh.set_sensitive(not track['approved'] and not self.busy and (p['limit'] is None or track['rewrites'] < p['limit']))
         pages['Lyrics'].append(refresh)
         pages['Lyrics'].append(label(t('Lock fields to preserve them exactly during rewrites.'), 'caption'))
         review = pages['Review']
@@ -450,7 +450,7 @@ class Studio(Gtk.Application):
         self.feedback_editor.set_sensitive(not track['approved'] and not self.busy)
         review.append(wrap)
         revise = button(t('Rewrite song'), self.rewrite, True)
-        revise.set_sensitive(not track['approved'] and not self.busy and track['rewrites'] < p['limit'])
+        revise.set_sensitive(not track['approved'] and not self.busy and (p['limit'] is None or track['rewrites'] < p['limit']))
         review.append(revise)
         if song.get('notes'):
             review.append(label(song['notes'], 'caption'))
@@ -538,12 +538,30 @@ class Studio(Gtk.Application):
             options = PRODUCTION_OPTIONS[key]
             controls[key] = dropdown(list(options), direction[key], [t(v[0]) for v in options.values()])
             container.append(controls[key])
+        container.append(label(t('Drum feel'), 'heading'))
+        drum_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
+        drum_scale.set_value(50 if direction.get('drums') is None else direction['drums'])
+        drum_scale.set_draw_value(False)
+        drum_scale.set_hexpand(True)
+        container.append(drum_scale)
+        drum_ends = box(False)
+        drum_left = label(t('Machine-perfect'))
+        drum_left.set_hexpand(True)
+        drum_ends.append(drum_left)
+        drum_ends.append(label(t('Sunday night in the pub')))
+        container.append(drum_ends)
+        drum_caption = label('', 'caption')
+        container.append(drum_caption)
+        def update_drum(*_):
+            drum_caption.set_text(f'{round(drum_scale.get_value())} — {t(drum_feel(round(drum_scale.get_value()))[0])}')
+        drum_scale.connect('value-changed', update_drum)
+        update_drum()
         container.append(label(t('Arrangement and delivery notes'), 'heading'))
         notes, wrap = text_input(direction['notes'], 100)
         container.append(wrap)
         limit_text(notes, container)
         container.append(label(t('Applies to the next draft or rewrite. Suno may interpret these directions differently.'), 'caption'))
-        return lambda: production_direction({**{key: text_of(widget) for key, widget in controls.items()}, 'notes': text_of(notes)})
+        return lambda: production_direction({**{key: text_of(widget) for key, widget in controls.items()}, 'notes': text_of(notes), 'drums': round(drum_scale.get_value())})
 
     def production_dialog(self):
         if self.busy or not self.flush():
@@ -578,6 +596,13 @@ class Studio(Gtk.Application):
             c.append(label(t(title), 'heading'))
             entries[key] = Gtk.Entry(text=value)
             c.append(entries[key])
+        c.append(label(t('Your lyrics (optional)'), 'heading'))
+        user_lyrics, lyrics_wrap = text_input('', 180)
+        c.append(lyrics_wrap)
+        c.append(label(t('Leave empty to have Ollama write the lyrics.'), 'caption'))
+        lyrics_handling = dropdown(['suggest', 'preserve'], 'suggest',
+                                   [t('Offer improvement suggestions'), t('Leave my lyrics unchanged')])
+        c.append(lyrics_handling)
         c.append(label(t('Style prompt'), 'heading'))
         style, wrap = text_input('', 110)
         c.append(wrap)
@@ -596,7 +621,8 @@ class Studio(Gtk.Application):
         pick = dropdown(ids, self.collection_id or '', [t('No collection')] + [x['name'] for x in collections])
         c.append(label(t('Collection (optional)'), 'heading'))
         c.append(pick)
-        count, minimum, maximum, limit = spin(1, 1, 20), spin(180, 30, 1200, 15), spin(240, 30, 1200, 15), spin(3, 0, 20)
+        default_limit = self.settings.get('rewrite_limit', 3)
+        count, minimum, maximum, limit = spin(1, 1, 20), spin(180, 30, 1200, 15), spin(240, 30, 1200, 15), spin(default_limit if default_limit is not None else 3, 0, 20)
         for title, widget in [('Song count', count), ('Minimum length (seconds)', minimum), ('Maximum length (seconds)', maximum), ('AI rewrites per song', limit)]:
             row = box(False)
             l = label(t(title))
@@ -610,7 +636,9 @@ class Studio(Gtk.Application):
             try:
                 if not self.flush():
                     return
-                p = create_project(text_of(entries['name']) or t('Untitled song'), text_of(style), text_of(count), text_of(minimum), text_of(maximum), text_of(limit), text_of(theme), text_of(entries['language']))
+                p = create_project(text_of(entries['name']) or t('Untitled song'), text_of(style), text_of(count), text_of(minimum), text_of(maximum), text_of(limit), text_of(theme), text_of(entries['language']), text_of(user_lyrics))
+                for track in p['tracks']:
+                    track['lyrics_assist'] = text_of(lyrics_handling)
                 for track in p['tracks']:
                     track['production'] = collect_production()
                 self.store.save(p)
@@ -736,6 +764,19 @@ class Studio(Gtk.Application):
             return False
         window.connect('close-request', closing)
         c.append(label(t('Appearance'), 'heading'))
+        c.append(Gtk.Separator())
+        c.append(label(t('Rewrite limits'), 'heading'))
+        rewrite_limit = spin(self.settings.get('rewrite_limit', 3) if self.settings.get('rewrite_limit', 3) is not None else 3, 0, 20)
+        unlimited = Gtk.CheckButton(label=t('Disable rewrite limits completely'), active=self.settings.get('rewrite_limit', 3) is None)
+        c.append(unlimited)
+        limit_row = box(False)
+        limit_label = label(t('Default rewrites per song'))
+        limit_label.set_hexpand(True)
+        limit_row.append(limit_label)
+        limit_row.append(rewrite_limit)
+        c.append(limit_row)
+        rewrite_limit.set_sensitive(not unlimited.get_active())
+        unlimited.connect('toggled', lambda w: rewrite_limit.set_sensitive(not w.get_active()))
         mode = dropdown(['system', 'custom'], self.settings.get('colour_mode', 'system'), [t('Follow Omarchy theme'), t('Custom colours')])
         c.append(mode)
         palette = resolved_palette(self.settings) or self.native_colours
@@ -845,10 +886,15 @@ class Studio(Gtk.Application):
                     colour_css(colours)
                 if not self.flush():
                     return
+                new_limit = None if unlimited.get_active() else int(rewrite_limit.get_value())
                 saved = {**self.settings, 'model': model.get_text().strip(), 'colour_mode': text_of(mode), 'colours': colours,
-                         'ui_language': text_of(languages)}
+                         'ui_language': text_of(languages), 'rewrite_limit': new_limit}
                 self.store.save_settings(saved)
                 self.settings = saved
+                for project in self.store.list():
+                    if project.get('limit') != new_limit:
+                        project['limit'] = new_limit
+                        self.store.save(project)
                 set_language(saved['ui_language'])
                 self.refresh_theme()
                 window.close()
@@ -874,6 +920,7 @@ class Studio(Gtk.Application):
         window.actions.set_visible(True)
         # Named handles also make real GTK interaction tests precise.
         window.controls = {'language': languages, 'mode': mode, 'colours': colour_entries, 'model': model,
+                           'rewrite_limit': rewrite_limit, 'unlimited': unlimited,
                            'apply': apply, 'close': window.close, 'reset': reset}
         window.present()
         return window
@@ -1031,7 +1078,7 @@ class Studio(Gtk.Application):
                 continue
             project, index = lookup[key]
             track = project['tracks'][index]
-            if track['current'] and not track['approved'] and track['rewrites'] < project['limit']:
+            if track['current'] and not track['approved'] and (project['limit'] is None or track['rewrites'] < project['limit']):
                 check = Gtk.CheckButton(label=song_title(project, index), active=True)
                 c.append(check)
                 choices.append((project, index, check))
@@ -1076,7 +1123,7 @@ class Studio(Gtk.Application):
             self.view = 'song'
             snap = self.store.generation_context(self.project, index, self.collection_id)
             kind = 'rewrite' if snap['tracks'][index]['current'] else 'initial'
-            if kind == 'rewrite' and (snap['tracks'][index]['approved'] or snap['tracks'][index]['rewrites'] >= snap['limit']):
+            if kind == 'rewrite' and (snap['tracks'][index]['approved'] or (snap['limit'] is not None and snap['tracks'][index]['rewrites'] >= snap['limit'])):
                 self.finish(t('This song cannot be rewritten until reopened or its limit allows it.'), True)
                 return
             self.notify(t('Writing song {number}/{count}…', number=index + 1, count=snap['count']))

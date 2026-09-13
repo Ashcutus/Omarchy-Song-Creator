@@ -319,3 +319,52 @@ class PerformanceFeelTests(unittest.TestCase):
     def test_old_choices_keep_style_feel(self):
         direction = production_direction({'density': 'stripped'})
         self.assertEqual(direction['feel'], 'style')
+
+
+class UserLyricsTests(unittest.TestCase):
+    def test_user_lyrics_are_in_prompt_and_preserve_mode_wins(self):
+        project = create_project('Working title', 'Quiet folk', 1, 180, 240, 3,
+                                 lyrics='[Verse]\nKeep this line exactly.')
+        track = project['tracks'][0]
+        track['lyrics_assist'] = 'preserve'
+        prompt = prompt_for(project, 0)
+        self.assertIn('Keep this line exactly.', prompt)
+        self.assertIn('authoritative', prompt)
+        self.assertNotIn('Working title', project['tracks'][0]['lyrics_source'])
+
+    def test_preserve_mode_keeps_lyrics_from_model_output(self):
+        from unittest.mock import Mock
+        project = create_project('Working title', 'Quiet folk', 1, 180, 240, 3,
+                                 lyrics='[Verse]\nKeep this line exactly.')
+        project['tracks'][0]['lyrics_assist'] = 'preserve'
+        output = song('Different generated title')
+        client = Mock()
+        client.generate.return_value = output
+        result = generate_song(client, 'local', project, 0, '', threading.Event())
+        self.assertEqual(result['lyrics'], project['tracks'][0]['lyrics_source'])
+
+    def test_working_title_is_rejected_from_generated_lyrics(self):
+        from unittest.mock import Mock
+        project = create_project('Working title', 'Quiet folk', 1, 180, 240, 3)
+        clean = song('Different title')
+        client = Mock()
+        client.generate.side_effect = [dict(song(), lyrics='[Verse]\nWorking title is here.'), clean]
+        result = generate_song(client, 'local', project, 0, '', threading.Event())
+        self.assertEqual(result, clean)
+        self.assertIn('working title', client.generate.call_args.args[1].lower())
+
+    def test_unlimited_rewrites_are_allowed(self):
+        project = create_project('Song', 'Folk', 1, 180, 240, None)
+        commit_version(project, 0, song(), 'initial')
+        for number in range(5):
+            commit_version(project, 0, song(f'Rewrite {number}'), 'rewrite')
+        self.assertEqual(project['tracks'][0]['rewrites'], 5)
+
+    def test_drum_feel_slider_maps_to_prompt_requirements(self):
+        project = create_project('Quiet room', 'Acoustic folk', 1, 180, 240, 3)
+        project['tracks'][0]['production'] = production_direction({'drums': 100})
+        self.assertEqual(drum_feel(100)[0], 'Sloppy Sunday night in the pub')
+        requirements = production_requirements(project['tracks'][0])
+        self.assertTrue(any('ragged pub-band drums' in value for value in requirements['style_prompt']))
+        self.assertIn('[Drums: ragged pub-band feel]', requirements['lyrics'])
+        self.assertIn('rigid drum quantization', requirements['exclusions'])
