@@ -22,6 +22,21 @@ A native GTK 4 app for writing **songs** with a local Ollama model. Develop a so
 
 *Use your Omarchy theme, configure rewrite limits, choose a language, and manage local writing and updates from Settings.*
 
+## Review, refine and recover
+
+![Review proposed lyric changes before accepting them](docs/screenshots/review-changes.png)
+
+- **Review before accepting.** Rewrites show a saved/proposed comparison. Keep changes field by field; discarding a proposal does not consume a rewrite. Supplied lyrics in suggestion mode also get a review step.
+- **Choose the rewrite scope.** Change lyrics, sound settings, a section identified by its bracketed heading, or all unlocked fields. Preserved lyrics retain your latest saved manual edits.
+- **Set your own limits.** Use a finite rewrite allowance or unlimited rewrites, including for new songs. Settings changes affect the default; applying a limit to existing songs is an explicit choice.
+- **Preview production direction.** Inspect the delivery cues and character counts, see conflicting choices, and reuse saved production presets. Drum feel stays on Follow style until you choose otherwise. Fixed cues are assembled locally rather than relying on Ollama to repeat them exactly.
+- **Organise experiments.** Song tools provides duplication, archive, recoverable trash, a Suno result link, and listening notes associated with the current version.
+- **Resume work.** Failed or interrupted batch jobs are retained for retry, including after restarting the app. Successful drafts remain saved.
+- **Protect the library.** Versework creates a local SQLite backup at startup and retains ten backups. Settings provides manual backup, restore with a safety backup, and import of exported `history.json` files.
+- **Recover an update.** The updater retains the previous installed app. Restore it from Settings, or run the installed `launch.sh --rollback` if the new app cannot open. Songs remain in the separate data directory.
+
+Automatic backups live in the app data directory under `backups`. Data respects `XDG_DATA_HOME`, or `VERSEWORK_DATA` when explicitly set. Production directions remain creative requests; Versework does not generate or assess Suno audio.
+
 ## Why Versework
 
 | Create | Refine | Organise | Handoff |
@@ -103,7 +118,7 @@ In **New song → Production direction**, choose production density, dynamics, v
 
 Use the **Production** button on any song to adjust its next draft or rewrite. For a sparse result, try **Stripped back**, **Steady and contained**, and **Intimate solo**, with notes such as “Fingerpicked guitar and one dry lead voice; leave silence between phrases.”
 
-For both new drafts and rewrites (including collection updates), Versework supplies explicit production phrases for the style prompt, bracketed performance cues for the lyrics, and relevant exclusions. It checks that the model includes them in unlocked fields and retries once if they are missing. A second omission leaves your draft and rewrite allowance unchanged. Freeform arrangement notes are also sent as creative direction; their meaning is not automatically verified. Saving direction does not change existing lyrics: generate a draft or use Review to request a rewrite. Locked fields and rewrite limits still apply. Suno may interpret the instructions differently; this is creative direction, not direct control of its audio engine.
+For both new drafts and rewrites (including collection updates), Versework supplies explicit production phrases for the style prompt, bracketed performance cues for the lyrics, and relevant exclusions. It assembles these fixed cues locally in unlocked fields, respecting the selected rewrite scope and preserving supplied lyrics. It keeps style and exclusions within their character limits. Freeform arrangement notes are also sent as creative direction; their meaning is not automatically verified. Saving direction does not change existing lyrics: generate a draft or use Review to request a rewrite. Locked fields and rewrite limits still apply. Suno may interpret the instructions differently; this is creative direction, not direct control of its audio engine.
 
 ## Optional collections, albums and EPs
 
@@ -119,7 +134,7 @@ Earlier multi-song projects are automatically represented as collections on firs
 
 **Settings** is always dismissible with **Close**, the window close control, or **Escape**. Closing discards changes that have not been applied. **Apply** saves preferences and closes Settings, including when nothing has changed. If validation fails, Settings stays open so you can correct the error. Local writing controls are in a collapsible section and are not required for changing appearance or closing the window.
 
-Under **Rewrite limits**, set the default number of AI rewrites per song or enable **Disable rewrite limits completely**. Applying this setting updates existing songs as well as new ones. A zero limit still allows an initial draft but no rewrites.
+Under **Rewrite limits**, set the default number of AI rewrites per song or enable **Disable rewrite limits completely**. The setting changes the default for new songs. Select **Apply this limit to existing songs** to update the library too. A zero limit still allows an initial draft but no rewrites.
 
 ### Theme and colours
 

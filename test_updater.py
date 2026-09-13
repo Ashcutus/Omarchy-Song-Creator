@@ -10,6 +10,31 @@ ROOT = Path(__file__).resolve().parent
 
 
 class UpdaterTests(unittest.TestCase):
+    def test_plugin_refresh_only_updates_existing_plugin(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            plugin = root / 'omarchy/plugins/versework.launcher'
+            with patch.dict('os.environ', {'XDG_CONFIG_HOME': directory}):
+                updater.update_bar_plugin(ROOT)
+                self.assertFalse(plugin.exists())
+                plugin.mkdir(parents=True)
+                (plugin / 'custom-setting').write_text('keep')
+                updater.update_bar_plugin(ROOT)
+                self.assertEqual((plugin / 'custom-setting').read_text(), 'keep')
+                self.assertEqual((plugin / 'BarWidget.qml').read_bytes(), (ROOT / 'bar-plugin/BarWidget.qml').read_bytes())
+
+    def test_healthy_startup_retains_previous_version_for_rollback(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = self.installed(Path(directory))
+            updater.replace_installation(ROOT, target, 'b' * 40)
+            self.assertTrue(updater.has_rollback(target))
+            self.assertTrue((target / '.versework-pending').exists())
+            updater.confirm_startup(target)
+            self.assertFalse((target / '.versework-pending').exists())
+            updater.rollback_installation(target)
+            self.assertEqual(updater.current_revision(target), 'a' * 40)
+            self.assertEqual((target / 'app.py').read_text(), 'old content')
+
     def installed(self, root):
         target = root / 'app'
         target.mkdir()

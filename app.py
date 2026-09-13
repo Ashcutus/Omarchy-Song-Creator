@@ -16,11 +16,14 @@ from gi.repository import Gtk, Gdk, Gio, GLib
 from core import (DRUM_FEELS, drum_feel, PRODUCTION_OPTIONS, production_direction, TEXT_LIMIT, FIELDS, LABELS, VARIETIES, VOCALS, Store, Ollama, Cancelled, create_project,
                   make_collection, commit_version, restore_version, generate_song, track_status, song_text)
 from appearance import COLOUR_KEYS, LAYOUT_CSS, read_palette, colour_css, resolved_palette, valid_colour
-from updater import current_revision, latest_revision, install_update
+from updater import current_revision, latest_revision, install_update, confirm_startup, has_rollback, rollback_installation
 from i18n import LANGUAGES, set_language, system_language, t
+from generation_ui import GenerationMixin
+from workflow_ui import WorkflowMixin
+from production_ui import ProductionMixin
 
 APP_ID = 'io.versework.Studio'
-DATA = Path(os.environ.get('VERSEWORK_DATA', str(Path.home() / '.local/share/versework/data')))
+DATA = Path(os.environ.get('VERSEWORK_DATA', str(Path(os.environ.get('XDG_DATA_HOME', Path.home() / '.local/share')) / 'versework/data')))
 
 
 def box(vertical=True, spacing=12):
@@ -135,7 +138,7 @@ def collection_kind(collection):
     return t({'collection': 'Collection', 'album': 'Album', 'ep': 'EP'}[collection['kind']])
 
 
-class Studio(Gtk.Application):
+class Studio(GenerationMixin, ProductionMixin, WorkflowMixin, Gtk.Application):
     def __init__(self):
         super().__init__(application_id=APP_ID, flags=Gio.ApplicationFlags.NON_UNIQUE if '--smoke' in sys.argv else Gio.ApplicationFlags.DEFAULT_FLAGS)
         self.store = Store(DATA)
@@ -155,6 +158,7 @@ class Studio(Gtk.Application):
         self.update_running = False
         self.update_installed = False
         self.restart_requested = False
+        self.failed_jobs = self.store.list_jobs()
         self.connect('activate', self.activate)
 
     def activate(self, *_):
@@ -175,6 +179,7 @@ class Studio(Gtk.Application):
         GLib.timeout_add_seconds(3, self.refresh_theme)
         self.build_shell()
         self.win.present()
+        confirm_startup(Path(__file__).resolve().parent)
         if '--smoke' in sys.argv:
             GLib.timeout_add(300, self.smoke)
 
@@ -219,6 +224,9 @@ class Studio(Gtk.Application):
         self.stop_button = button(t('Stop writing'), self.stop)
         self.stop_button.set_visible(self.busy)
         footer.append(self.stop_button)
+        self.retry_button = button('Retry failed songs', self.retry_failed)
+        self.retry_button.set_visible(bool(self.failed_jobs))
+        footer.append(self.retry_button)
         root.append(footer)
         self.refresh_projects()
         if self.view == 'song' and self.project:
@@ -293,12 +301,14 @@ class Studio(Gtk.Application):
             outer.append(label(coll['theme']))
         if coll and self.store.pending_songs(coll['id']):
             outer.append(button(t('Write remaining drafts'), self.generate_missing, True))
-        songs = self.song_rows()
+        songs = [(p, i) for p in self.store.library_projects() for i in range(len(p['tracks']))]
         if coll:
             mapping = {p['tracks'][i]['id']: (p, i) for p, i in songs}
             songs = [mapping[ident] for ident in coll['songs'] if ident in mapping]
         search = Gtk.SearchEntry(placeholder_text=t('Search songs'))
         outer.append(search)
+        states = dropdown(['active', 'archive', 'trash'], 'active', ['Active songs', 'Archived songs', 'Trash'])
+        outer.append(states)
         listing = Gtk.ListBox(selection_mode=Gtk.SelectionMode.NONE)
         self.library_list = listing
         for p, i in songs:
@@ -318,10 +328,12 @@ class Studio(Gtk.Application):
             layout.append(Gtk.Image.new_from_icon_name('go-next-symbolic'))
             row.set_child(layout)
             row.song_ref = (p['id'], i)
+            row.song_state = track.get('state', 'active')
             row.search_text = (song_title(p, i) + ' ' + p.get('theme', '') + ' ' + p['style']).casefold()
             listing.append(row)
         listing.connect('row-activated', lambda _, row: self.load_project(*row.song_ref))
-        listing.set_filter_func(lambda row: search.get_text().casefold() in row.search_text)
+        listing.set_filter_func(lambda row: row.song_state == text_of(states) and search.get_text().casefold() in row.search_text)
+        states.connect('notify::selected', lambda *_: listing.invalidate_filter())
         search.connect('search-changed', lambda *_: listing.invalidate_filter())
         if songs:
             outer.append(scrolled(listing))
@@ -388,6 +400,7 @@ class Studio(Gtk.Application):
         toolbar.append(copy_song_button)
         toolbar.append(button(t('Versions'), self.history_dialog))
         toolbar.append(button(t('Export song'), self.export_dialog))
+        toolbar.append(button('Song tools', self.manage_song_dialog))
         toolbar.append(button(t('Reopen') if track['approved'] else t('Approve song'), self.approve, not track['approved']))
         outer.append(toolbar)
         self.editor_stack = Gtk.Stack(transition_type=Gtk.StackTransitionType.CROSSFADE)
@@ -453,6 +466,11 @@ class Studio(Gtk.Application):
         wrap.set_vexpand(True)
         self.feedback_editor.set_sensitive(not track['approved'] and not self.busy)
         review.append(wrap)
+        self.rewrite_scope = dropdown(['all', 'lyrics', 'sound', 'section'], 'all',
+                                      ['Everything unlocked', 'Lyrics only', 'Sound only', 'Selected section'])
+        review.append(self.rewrite_scope)
+        self.rewrite_section = Gtk.Entry(placeholder_text='Section heading, e.g. [Chorus]')
+        review.append(self.rewrite_section)
         revise = button(t('Rewrite song'), self.rewrite, True)
         revise.set_sensitive(not track['approved'] and not self.busy and (p['limit'] is None or track['rewrites'] < p['limit']))
         review.append(revise)
@@ -527,7 +545,7 @@ class Studio(Gtk.Application):
         launcher.launch(self.win, None, opened)
 
     def dialog(self, title, width=640, height=650):
-        window = Gtk.Window(title=title, transient_for=self.win, modal=True)
+        window = Gtk.Window(application=self, title=title, transient_for=self.win, modal=True)
         window.set_default_size(width, height)
         header = Gtk.HeaderBar(show_title_buttons=False)
         heading = label(title, 'heading')
@@ -552,62 +570,6 @@ class Studio(Gtk.Application):
         root.append(window.actions)
         window.set_child(root)
         return window, child
-
-    def production_controls(self, container, value=None):
-        direction = production_direction(value)
-        controls = {}
-        for key, title in [('density', 'Production'), ('dynamics', 'Dynamics'), ('vocals', 'Vocal delivery'), ('feel', 'Performance feel')]:
-            container.append(label(t(title), 'heading'))
-            options = PRODUCTION_OPTIONS[key]
-            controls[key] = dropdown(list(options), direction[key], [t(v[0]) for v in options.values()])
-            container.append(controls[key])
-        container.append(label(t('Drum feel'), 'heading'))
-        drum_scale = Gtk.Scale.new_with_range(Gtk.Orientation.HORIZONTAL, 0, 100, 1)
-        drum_scale.set_value(50 if direction.get('drums') is None else direction['drums'])
-        drum_scale.set_draw_value(False)
-        drum_scale.set_hexpand(True)
-        container.append(drum_scale)
-        drum_ends = box(False)
-        drum_left = label(t('Machine-perfect'))
-        drum_left.set_hexpand(True)
-        drum_ends.append(drum_left)
-        drum_ends.append(label(t('Sunday night in the pub')))
-        container.append(drum_ends)
-        drum_caption = label('', 'caption')
-        container.append(drum_caption)
-        def update_drum(*_):
-            drum_caption.set_text(f'{round(drum_scale.get_value())} — {t(drum_feel(round(drum_scale.get_value()))[0])}')
-        drum_scale.connect('value-changed', update_drum)
-        update_drum()
-        container.append(label(t('Arrangement and delivery notes'), 'heading'))
-        notes, wrap = text_input(direction['notes'], 100)
-        container.append(wrap)
-        limit_text(notes, container)
-        container.append(label(t('Applies to the next draft or rewrite. Suno may interpret these directions differently.'), 'caption'))
-        return lambda: production_direction({**{key: text_of(widget) for key, widget in controls.items()}, 'notes': text_of(notes), 'drums': round(drum_scale.get_value())})
-
-    def production_dialog(self):
-        if self.busy or not self.flush():
-            return
-        window, c = self.dialog(t('Production direction'), 640, 700)
-        track = self.project['tracks'][self.track_index]
-        collect = self.production_controls(c, track.get('production'))
-        error = label('', 'error')
-        c.append(error)
-        def save():
-            try:
-                candidate = copy.deepcopy(self.project)
-                candidate['tracks'][self.track_index]['production'] = collect()
-                self.store.save(candidate)
-                self.project = candidate
-                window.close()
-                self.notify(t('Production direction saved for the next draft or rewrite.'))
-            except Exception as exc:
-                error.set_text(str(exc))
-        window.actions.append(button(t('Save'), save, True))
-        window.actions.set_visible(True)
-        window.present()
-        return window
 
     def new_dialog(self):
         if self.busy:
@@ -645,7 +607,11 @@ class Studio(Gtk.Application):
         c.append(label(t('Collection (optional)'), 'heading'))
         c.append(pick)
         default_limit = self.settings.get('rewrite_limit', 3)
+        unlimited = Gtk.CheckButton(label=t('Disable rewrite limits completely'), active=default_limit is None)
+        c.append(unlimited)
         count, minimum, maximum, limit = spin(1, 1, 20), spin(180, 30, 1200, 15), spin(240, 30, 1200, 15), spin(default_limit if default_limit is not None else 3, 0, 20)
+        limit.set_sensitive(not unlimited.get_active())
+        unlimited.connect('toggled', lambda w: limit.set_sensitive(not w.get_active()))
         for title, widget in [('Song count', count), ('Minimum length (seconds)', minimum), ('Maximum length (seconds)', maximum), ('AI rewrites per song', limit)]:
             row = box(False)
             l = label(t(title))
@@ -659,7 +625,7 @@ class Studio(Gtk.Application):
             try:
                 if not self.flush():
                     return
-                p = create_project(text_of(entries['name']) or t('Untitled song'), text_of(style), text_of(count), text_of(minimum), text_of(maximum), text_of(limit), text_of(theme), text_of(entries['language']), text_of(user_lyrics))
+                p = create_project(text_of(entries['name']) or t('Untitled song'), text_of(style), text_of(count), text_of(minimum), text_of(maximum), None if unlimited.get_active() else text_of(limit), text_of(theme), text_of(entries['language']), text_of(user_lyrics))
                 for track in p['tracks']:
                     track['lyrics_assist'] = text_of(lyrics_handling)
                 for track in p['tracks']:
@@ -798,6 +764,8 @@ class Studio(Gtk.Application):
         limit_row.append(limit_label)
         limit_row.append(rewrite_limit)
         c.append(limit_row)
+        apply_existing = Gtk.CheckButton(label='Apply this limit to existing songs', active=False)
+        c.append(apply_existing)
         rewrite_limit.set_sensitive(not unlimited.get_active())
         unlimited.connect('toggled', lambda w: rewrite_limit.set_sensitive(not w.get_active()))
         mode = dropdown(['system', 'custom'], self.settings.get('colour_mode', 'system'), [t('Follow Omarchy theme'), t('Custom colours')])
@@ -912,12 +880,10 @@ class Studio(Gtk.Application):
                 new_limit = None if unlimited.get_active() else int(rewrite_limit.get_value())
                 saved = {**self.settings, 'model': model.get_text().strip(), 'colour_mode': text_of(mode), 'colours': colours,
                          'ui_language': text_of(languages), 'rewrite_limit': new_limit}
-                self.store.save_settings(saved)
+                self.store.apply_settings(saved, apply_existing=apply_existing.get_active())
                 self.settings = saved
-                for project in self.store.list():
-                    if project.get('limit') != new_limit:
-                        project['limit'] = new_limit
-                        self.store.save(project)
+                if self.project:
+                    self.project = next(p for p in self.store.list() if p['id'] == self.project['id'])
                 set_language(saved['ui_language'])
                 self.refresh_theme()
                 window.close()
@@ -937,13 +903,14 @@ class Studio(Gtk.Application):
                 self.notify(t('Settings saved.'))
             except Exception as e:
                 error.set_text(str(e))
+        self.recovery_controls(c)
         self.update_controls(c)
         window.actions.append(button(t('Apply'), apply, True))
         window.actions.append(button(t('Close'), window.close))
         window.actions.set_visible(True)
         # Named handles also make real GTK interaction tests precise.
         window.controls = {'language': languages, 'mode': mode, 'colours': colour_entries, 'model': model,
-                           'rewrite_limit': rewrite_limit, 'unlimited': unlimited,
+                           'rewrite_limit': rewrite_limit, 'unlimited': unlimited, 'apply_existing': apply_existing,
                            'apply': apply, 'close': window.close, 'reset': reset}
         window.present()
         return window
@@ -956,6 +923,17 @@ class Studio(Gtk.Application):
         action = button(t('Check for updates'), lambda: check())
         container.append(action)
         target = Path(__file__).resolve().parent
+        if has_rollback(target):
+            def rollback():
+                if self.busy or self.update_running or not self.flush():
+                    return
+                try:
+                    rollback_installation(target)
+                    self.restart_requested = True
+                    self.quit()
+                except Exception as exc:
+                    state.set_text(str(exc))
+            container.append(button('Restore previous app version and restart', rollback))
         found = [None]
         if self.update_installed:
             state.set_text(t('Update installed. Restart Versework to use it.'))
@@ -974,7 +952,7 @@ class Studio(Gtk.Application):
                 return False
             GLib.timeout_add(250, refresh_when_done)
 
-        def finish(revision=None, error=None, installed=False):
+        def finish(revision=None, error=None, installed=False, warning=''):
             self.update_running = False
             action.set_sensitive(True)
             if error:
@@ -984,6 +962,8 @@ class Studio(Gtk.Application):
             elif installed:
                 self.update_installed = True
                 state.set_text(t('Update installed. Restart Versework to use it.'))
+                if warning:
+                    state.set_text(state.get_text() + '\n' + warning)
                 action.set_label(t('Restart Versework'))
             elif revision == current_revision(target):
                 state.set_text(t('Versework is up to date.'))
@@ -1018,8 +998,8 @@ class Studio(Gtk.Application):
             def worker():
                 try:
                     if revision:
-                        install_update(target, revision)
-                        GLib.idle_add(finish, None, None, True)
+                        warning = install_update(target, revision)
+                        GLib.idle_add(finish, None, None, True, warning)
                     else:
                         GLib.idle_add(finish, latest_revision())
                 except Exception as exc:
@@ -1056,13 +1036,13 @@ class Studio(Gtk.Application):
         if not feedback:
             self.notify(t('Add feedback before requesting a rewrite.'), True)
             return
-        self.start_jobs([self.track_index], feedback)
+        self.start_jobs([self.track_index], feedback, scope=text_of(self.rewrite_scope), section=self.rewrite_section.get_text().strip() or None)
 
     def refresh_lyrics_dialog(self):
         if self.busy or not self.flush():
             return
         track = self.project['tracks'][self.track_index]
-        if track['approved'] or track['rewrites'] >= self.project['limit']:
+        if track['approved'] or (self.project['limit'] is not None and track['rewrites'] >= self.project['limit']):
             return
         window, c = self.dialog(t('Refresh lyrics'), 620, 460)
         c.append(label(t('Choose a starting point, then review the instructions before rewriting.'), 'caption'))
@@ -1117,86 +1097,6 @@ class Studio(Gtk.Application):
         window.actions.append(button(t('Rewrite selected songs'), run, True))
         window.actions.set_visible(True)
         window.present()
-
-    def start_jobs(self, indices, feedback='', song_jobs=None):
-        if self.busy or not self.flush():
-            return
-        if not indices and not song_jobs:
-            self.notify(t('All drafts are written.'))
-            return
-        self.busy = True
-        self.cancel_event = threading.Event()
-        self.spinner.start()
-        self.stop_button.set_visible(True)
-        self.content.set_sensitive(False)
-        self.sidebar.set_sensitive(False)
-        model = self.settings['model']
-        self.notify(t('Connecting to {model}…', model=model))
-        jobs = list(song_jobs) if song_jobs else [(self.project['id'], index) for index in indices]
-        def next_job():
-            if self.cancel_event.is_set():
-                self.finish(t('Writing stopped. Completed drafts are saved.'))
-                return
-            if not jobs:
-                self.finish(t('Drafts saved. Ready for review.'))
-                return
-            ident, index = jobs.pop(0)
-            self.project = next(p for p in self.store.list() if p['id'] == ident)
-            self.track_index = index
-            self.view = 'song'
-            snap = self.store.generation_context(self.project, index, self.collection_id)
-            kind = 'rewrite' if snap['tracks'][index]['current'] else 'initial'
-            if kind == 'rewrite' and (snap['tracks'][index]['approved'] or (snap['limit'] is not None and snap['tracks'][index]['rewrites'] >= snap['limit'])):
-                self.finish(t('This song cannot be rewritten until reopened or its limit allows it.'), True)
-                return
-            self.notify(t('Writing song {number}/{count}…', number=index + 1, count=snap['count']))
-            def worker():
-                try:
-                    if model not in self.ollama.models():
-                        raise ValueError(t('No local models installed.') + ' ' + model)
-                    last = [0.0]
-                    def progress(size):
-                        if time.monotonic() - last[0] > 1:
-                            last[0] = time.monotonic()
-                            GLib.idle_add(self.notify, t('Writing song {number}/{count} · {size} characters', number=index + 1, count=snap['count'], size=size))
-                    data = generate_song(self.ollama, model, snap, index, feedback, self.cancel_event, progress)
-                    GLib.idle_add(accept, index, kind, data)
-                except Cancelled:
-                    GLib.idle_add(self.finish, t('Writing stopped. Completed drafts are saved.'))
-                except Exception as e:
-                    GLib.idle_add(self.finish, str(e), True)
-            threading.Thread(target=worker, daemon=True).start()
-        def accept(index, kind, data):
-            if self.cancel_event.is_set():
-                self.finish(t('Writing stopped. Completed drafts are saved.'))
-                return
-            try:
-                candidate = copy.deepcopy(self.project)
-                commit_version(candidate, index, data, kind, feedback, model)
-                if feedback:
-                    candidate['tracks'][index]['feedback'] = feedback
-                self.store.save(candidate)
-                self.project = candidate
-                self.track_index = index
-            except Exception as e:
-                self.finish(str(e), True)
-                return
-            next_job()
-        next_job()
-
-    def finish(self, message, error=False):
-        self.busy = False
-        self.spinner.stop()
-        self.stop_button.set_visible(False)
-        self.content.set_sensitive(True)
-        self.sidebar.set_sensitive(True)
-        self.editors = {}
-        self.render_project()
-        self.notify(message, error)
-
-    def stop(self):
-        self.cancel_event.set()
-        self.notify(t('Stopping after Ollama responds…'))
 
     def history_dialog(self):
         if not self.flush():

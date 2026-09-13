@@ -15,7 +15,7 @@ omarchy pkg add ollama ollama-vulkan
 export OLLAMA_HOST=127.0.0.1:11434
 export OLLAMA_NO_CLOUD=1
 export OLLAMA_VULKAN=1
-versework_data="$HOME/.local/share/versework/data"
+versework_data="${VERSEWORK_DATA:-${XDG_DATA_HOME:-$HOME/.local/share}/versework/data}"
 mkdir -p -- "$versework_data"
 if ! curl --noproxy '*' --fail --silent http://127.0.0.1:11434/api/tags >/dev/null; then
   nohup ollama serve >>"$versework_data/ollama.log" 2>&1 </dev/null &

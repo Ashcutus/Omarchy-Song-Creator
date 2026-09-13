@@ -241,34 +241,28 @@ class ProductionDeliveryTests(unittest.TestCase):
             output[field] += '\n' + '\n'.join(cues)
         return output
 
-    def test_new_and_rewrite_retry_omitted_cues(self):
+    def test_new_and_rewrite_compose_omitted_cues_without_retry(self):
         from unittest.mock import Mock
         for existing in (False, True):
             with self.subTest(existing=existing):
                 project = self.project(existing)
-                expected = self.compliant(project)
                 client = Mock()
-                client.generate.side_effect = [song(), expected]
+                client.generate.return_value = song()
                 result = generate_song(client, 'local', project, 0, 'Less produced',
                                        threading.Event())
-                self.assertEqual(result, expected)
-                self.assertEqual(client.generate.call_count, 2)
-                retry_prompt = client.generate.call_args.args[1]
-                self.assertIn('style_prompt: sparse arrangement', retry_prompt)
-                self.assertIn('lyrics: [Intimate solo vocal]', retry_prompt)
-                self.assertIn('exclusions: vocal doubling', retry_prompt)
+                self.assertEqual(missing_production(result, project['tracks'][0]), [])
+                self.assertEqual(client.generate.call_count, 1)
 
-    def test_failure_preserves_new_and_existing_song(self):
+    def test_composition_does_not_mutate_new_or_existing_project(self):
         from unittest.mock import Mock
         for existing in (False, True):
             project = self.project(existing)
             before = copy.deepcopy(project)
             client = Mock()
             client.generate.return_value = song()
-            with self.assertRaisesRegex(ValueError, 'production directions'):
-                generate_song(client, 'local', project, 0, 'Less produced', threading.Event())
+            generate_song(client, 'local', project, 0, 'Less produced', threading.Event())
             self.assertEqual(project, before)
-            self.assertEqual(client.generate.call_count, 2)
+            self.assertEqual(client.generate.call_count, 1)
 
     def test_locks_and_instrumental_output(self):
         project = self.project(True)
@@ -312,9 +306,9 @@ class PerformanceFeelTests(unittest.TestCase):
                     output[field] += '\n' + '\n'.join(cues)
                 client = Mock()
                 client.generate.side_effect = [song(), output]
-                self.assertEqual(generate_song(client, 'local', project, 0, 'More natural',
-                                              threading.Event()), output)
-                self.assertEqual(client.generate.call_count, 2)
+                result = generate_song(client, 'local', project, 0, 'More natural', threading.Event())
+                self.assertEqual(missing_production(result, track), [])
+                self.assertEqual(client.generate.call_count, 1)
 
     def test_old_choices_keep_style_feel(self):
         direction = production_direction({'density': 'stripped'})

@@ -209,6 +209,44 @@ normal|Normal|Normal|Normal
 high|Hoch|Alto|Élevé
 extra|Extra|Extra|Extra
 max|Maximum|Máximo|Maximum
+Production presets|Produktionsvorlagen|Preajustes de producción|Préréglages de production
+Choose a preset|Vorlage wählen|Elegir un preajuste|Choisir un préréglage
+Machine-perfect → Sunday night in the pub|Maschinenpräzise → Sonntagabend in der Kneipe|Precisión mecánica → Domingo por la noche en el bar|Précision mécanique → Dimanche soir au pub
+Preset name|Name der Vorlage|Nombre del preajuste|Nom du préréglage
+Enter a preset name.|Gib einen Namen für die Vorlage ein.|Introduce un nombre para el preajuste.|Saisissez un nom de préréglage.
+Preset saved.|Vorlage gespeichert.|Preajuste guardado.|Préréglage enregistré.
+Save production preset|Produktionsvorlage speichern|Guardar preajuste de producción|Enregistrer le préréglage de production
+Production preview|Produktionsvorschau|Vista previa de producción|Aperçu de production
+These directions are added to the next draft. Locked fields are preserved.|Diese Vorgaben werden dem nächsten Entwurf hinzugefügt. Gesperrte Felder bleiben erhalten.|Estas instrucciones se añaden al próximo borrador. Los campos bloqueados se conservan.|Ces consignes sont ajoutées au prochain brouillon. Les champs verrouillés sont conservés.
+Preserved|Beibehalten|Conservado|Conservé
+Review proposed changes|Vorgeschlagene Änderungen prüfen|Revisar cambios propuestos|Examiner les modifications proposées
+Choose the changes to keep. Unchecked fields retain your saved version.|Wähle die gewünschten Änderungen. Nicht ausgewählte Felder behalten die gespeicherte Version.|Elige los cambios que deseas conservar. Los campos sin marcar mantienen la versión guardada.|Choisissez les modifications à conserver. Les champs décochés gardent votre version enregistrée.
+Saved|Gespeichert|Guardado|Enregistré
+Proposed|Vorgeschlagen|Propuesto|Proposé
+Select at least one change, or discard this proposal.|Wähle mindestens eine Änderung oder verwirf diesen Vorschlag.|Selecciona al menos un cambio o descarta esta propuesta.|Sélectionnez au moins une modification ou abandonnez cette proposition.
+Accept selected changes|Ausgewählte Änderungen übernehmen|Aceptar cambios seleccionados|Accepter les modifications sélectionnées
+Discard proposal|Vorschlag verwerfen|Descartar propuesta|Abandonner la proposition
+Song tools|Song-Werkzeuge|Herramientas de canción|Outils de chanson
+Suno result link|Link zum Suno-Ergebnis|Enlace al resultado de Suno|Lien du résultat Suno
+Listening notes — drums, vocals, arrangement and duration|Hörnotizen — Schlagzeug, Gesang, Arrangement und Dauer|Notas de escucha — batería, voz, arreglo y duración|Notes d'écoute — batterie, voix, arrangement et durée
+Duplicate song|Song duplizieren|Duplicar canción|Dupliquer la chanson
+Restore to active songs|Zu aktiven Songs zurückholen|Restaurar a canciones activas|Rétablir parmi les chansons actives
+Archive song|Song archivieren|Archivar canción|Archiver la chanson
+Move to trash|In den Papierkorb verschieben|Mover a la papelera|Mettre à la corbeille
+Save listening notes|Hörnotizen speichern|Guardar notas de escucha|Enregistrer les notes d'écoute
+Backups and recovery|Sicherung und Wiederherstellung|Copias de seguridad y recuperación|Sauvegardes et récupération
+Backups include your songs, history, collections and settings.|Sicherungen enthalten Songs, Verlauf, Sammlungen und Einstellungen.|Las copias incluyen tus canciones, historial, colecciones y ajustes.|Les sauvegardes incluent vos chansons, historique, collections et paramètres.
+Backup saved: {path}|Sicherung gespeichert: {path}|Copia guardada: {path}|Sauvegarde enregistrée : {path}
+Create backup|Sicherung erstellen|Crear copia de seguridad|Créer une sauvegarde
+Choose backup|Sicherung wählen|Elegir copia de seguridad|Choisir une sauvegarde
+Import history.json|history.json importieren|Importar history.json|Importer history.json
+Restore backup|Sicherung wiederherstellen|Restaurar copia de seguridad|Restaurer la sauvegarde
+Replace the current library with this backup? A safety backup of the current library will be kept.|Aktuelle Bibliothek durch diese Sicherung ersetzen? Eine Sicherheitskopie der aktuellen Bibliothek bleibt erhalten.|¿Reemplazar la biblioteca actual con esta copia? Se conservará una copia de seguridad de la biblioteca actual.|Remplacer la bibliothèque actuelle par cette sauvegarde ? Une copie de sécurité de la bibliothèque actuelle sera conservée.
+Imported {count} songs.|{count} Songs importiert.|Se importaron {count} canciones.|{count} chansons importées.
+Import exported history|Exportierten Verlauf importieren|Importar historial exportado|Importer l'historique exporté
+Restore backup…|Sicherung wiederherstellen…|Restaurar copia de seguridad…|Restaurer une sauvegarde…
+Machine-perfect drums override human timing for drums; other instruments retain the selected feel.|Maschinenpräzises Schlagzeug ersetzt menschliches Timing beim Schlagzeug; andere Instrumente behalten das gewählte Spielgefühl.|La batería mecánica anula el ritmo humano de la batería; los demás instrumentos mantienen el estilo seleccionado.|La batterie mécanique remplace le timing humain de la batterie ; les autres instruments gardent le jeu sélectionné.
+Loose drums override precise timing for drums; other instruments retain the selected feel.|Lockeres Schlagzeug ersetzt präzises Timing beim Schlagzeug; andere Instrumente behalten das gewählte Spielgefühl.|La batería suelta anula el ritmo preciso de la batería; los demás instrumentos mantienen el estilo seleccionado.|La batterie relâchée remplace le timing précis de la batterie ; les autres instruments gardent le jeu sélectionné.
 '''
 CATALOGUES = {code: {} for code in ['de', 'es', 'fr']}
 for row in _ROWS.strip().splitlines():
