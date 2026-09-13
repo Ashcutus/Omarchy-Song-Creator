@@ -48,10 +48,24 @@ def read_palette(home=None):
 
 
 def text_on(colour):
+    """Return whichever black or white has the strongest contrast."""
     rgb = [int(colour[i:i+2], 16) / 255 for i in (1, 3, 5)]
     linear = [c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4 for c in rgb]
     lum = sum(c * w for c, w in zip(linear, (0.2126, 0.7152, 0.0722)))
-    return '#000000' if lum > 0.179 else '#ffffff'
+    black_ratio = (lum + 0.05) / 0.05
+    white_ratio = 1.05 / (lum + 0.05)
+    return '#000000' if black_ratio >= white_ratio else '#ffffff'
+
+
+def mix_colour(first, second, second_weight):
+    """Mix two six-digit colours, matching GTK's mix(first, second, weight)."""
+    weight = max(0.0, min(1.0, float(second_weight)))
+    values = []
+    for offset in (1, 3, 5):
+        a = int(first[offset:offset + 2], 16)
+        b = int(second[offset:offset + 2], 16)
+        values.append(round(a * (1 - weight) + b * weight))
+    return '#' + ''.join(f'{value:02X}' for value in values)
 
 
 def colour_css(palette):
@@ -60,6 +74,12 @@ def colour_css(palette):
     if not all(valid_colour(palette.get(k)) for k in COLOUR_KEYS):
         raise ValueError('Use a six-digit hex colour such as #A855F7.')
     bg, surface, fg, accent = [palette[k] for k in COLOUR_KEYS]
+    button_bg = mix_colour(bg, surface, 0.72)
+    button_hover = mix_colour(button_bg, accent, 0.18)
+    button_active = mix_colour(button_bg, accent, 0.3)
+    button_fg = text_on(button_bg)
+    button_hover_fg = text_on(button_hover)
+    button_active_fg = text_on(button_active)
     on_accent = text_on(accent)
     return f'''
 @define-color theme_bg_color {bg};
@@ -76,13 +96,15 @@ headerbar, .sidebar {{ background: {bg}; color: {fg}; }}
 .card, .library-row {{ background: mix({bg}, {surface}, 0.55); color: {fg}; }}
 headerbar {{ border-bottom: 1px solid alpha({accent}, 0.6); }}
 window > box {{ border: 1px solid alpha({accent}, 0.55); }}
-button, dropdown > button {{ background: transparent; color: {fg}; border: 1px solid alpha({fg}, 0.35); }}
-button:hover {{ background: mix({bg}, {fg}, 0.08); border-color: {accent}; }}
+button, dropdown > button {{ background: {button_bg}; color: {button_fg}; border: 1px solid alpha({button_fg}, 0.5); }}
+button:hover {{ background: {button_hover}; color: {button_hover_fg}; border-color: {accent}; }}
+button:active {{ background: {button_active}; color: {button_active_fg}; }}
 button:disabled {{ opacity: 0.58; }}
-button.suggested-action {{ background: alpha({accent}, 0.12); color: {accent}; border-color: {accent}; }}
-button.suggested-action:hover {{ background: alpha({accent}, 0.22); }}
-button.copy-confirmed {{ background: alpha({accent}, 0.18); color: {accent}; border-color: {accent}; }}
-stackswitcher button:checked, list row:selected {{ background: alpha({accent}, 0.14); color: {accent}; }}
+button.suggested-action {{ background: {accent}; color: {on_accent}; border-color: {accent}; }}
+button.suggested-action:hover {{ background: {button_hover}; color: {button_hover_fg}; }}
+button.copy-confirmed {{ background: {accent}; color: {on_accent}; border-color: {accent}; }}
+stackswitcher button:checked {{ background: {accent}; color: {on_accent}; }}
+list row:selected {{ background: alpha({accent}, 0.2); color: {fg}; }}
 button:focus-visible, entry:focus-within, .text-editor:focus-within {{ outline: 1px solid {accent}; outline-offset: -1px; }}
 entry, textview, textview text {{ background: {bg}; color: {fg}; caret-color: {accent}; }}
 list, scrolledwindow {{ background-color: transparent; }}
